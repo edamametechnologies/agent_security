@@ -1,0 +1,127 @@
+{
+  "generated_at_utc": "2026-02-23T03:13:47Z",
+  "verdict": "CONDITIONAL_GO",
+  "evidence_source": {
+    "mode": "live",
+    "total_runs": 100,
+    "precision": 1,
+    "recall": 1,
+    "seeds": 25,
+    "skipped_ratio": 0,
+    "scenario_coverage_ratio": 1,
+    "group_coverage_ratio": 1,
+    "category_count": 1,
+    "git_sha": "fcd3731"
+  },
+  "criteria": [
+    {
+      "id": "live_mode",
+      "description": "Benchmark mode is live (trace-backed, not synthetic)",
+      "passed": true,
+      "observed": "live",
+      "threshold": "== live",
+      "severity": "high"
+    },
+    {
+      "id": "reproducibility_manifest",
+      "description": "Manifest includes git SHA and scenario-set hash",
+      "passed": true,
+      "observed": {
+        "git_sha": "fcd3731",
+        "scenario_set_version": "8632b58c5058976eb21e3f44733c5adb79a9862fcb381f0df395a79f28bcf0d4"
+      },
+      "threshold": "git_sha != unknown AND scenario_set_version != unknown",
+      "severity": "high"
+    },
+    {
+      "id": "sample_size",
+      "description": "At least 100 total measured runs",
+      "passed": true,
+      "observed": 100,
+      "threshold": ">= 100",
+      "severity": "high"
+    },
+    {
+      "id": "precision_lower_bound",
+      "description": "Precision CI95 lower bound >= 0.85",
+      "passed": true,
+      "observed": 0.9286499658256813,
+      "threshold": ">= 0.85",
+      "severity": "high"
+    },
+    {
+      "id": "recall_lower_bound",
+      "description": "Recall CI95 lower bound >= 0.85",
+      "passed": true,
+      "observed": 0.9286499658256813,
+      "threshold": ">= 0.85",
+      "severity": "high"
+    },
+    {
+      "id": "seed_coverage",
+      "description": "At least 10 distinct seeds",
+      "passed": true,
+      "observed": 25,
+      "threshold": ">= 10",
+      "severity": "medium"
+    },
+    {
+      "id": "skip_ratio",
+      "description": "Skipped-run ratio <= 15%",
+      "passed": true,
+      "observed": {
+        "skipped_runs": 0,
+        "planned_runs": 100,
+        "skipped_ratio": 0
+      },
+      "threshold": "<= 0.15",
+      "severity": "high"
+    },
+    {
+      "id": "scenario_coverage",
+      "description": "Scenario coverage ratio >= 80%",
+      "passed": true,
+      "observed": {
+        "covered_scenarios": 4,
+        "scenario_count": 4,
+        "coverage_ratio": 1
+      },
+      "threshold": ">= 0.80",
+      "severity": "high"
+    },
+    {
+      "id": "group_coverage",
+      "description": "Scenario-group coverage ratio >= 70%",
+      "passed": true,
+      "observed": {
+        "covered_groups": 2,
+        "group_count": 2,
+        "coverage_ratio": 1
+      },
+      "threshold": ">= 0.70",
+      "severity": "medium"
+    },
+    {
+      "id": "category_diversity",
+      "description": "At least 5 evaluated categories",
+      "passed": false,
+      "observed": 1,
+      "threshold": ">= 5",
+      "severity": "medium"
+    },
+    {
+      "id": "stability_recall_stddev",
+      "description": "Recall stddev across seeds <= 0.15",
+      "passed": true,
+      "observed": 0,
+      "threshold": "<= 0.15",
+      "severity": "high"
+    }
+  ],
+  "stats": {
+    "total": 11,
+    "passed": 10,
+    "failed": 1,
+    "failed_high": 0
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "generated_at_utc": "2026-03-13T08:13:29Z",
+  "inputs": {
+    "benchmark_summary": "/Users/flyonnet/Programming/openclaw_security/artifacts/live-paper-summary.json",
+    "run_manifest": "/Users/flyonnet/Programming/openclaw_security/artifacts/live-paper-manifest.json",
+    "whitepaper_source": "/Users/flyonnet/Programming/openclaw_security/paper/arxiv_draft.md",
+    "soundness_source": "/Users/flyonnet/Programming/openclaw_security/docs/SOUNDNESS_ANALYSIS_2026-02-18.md"
+  },
+  "outputs": {
+    "appendix_metrics": "/Users/flyonnet/Programming/openclaw_security/artifacts/paper-bundle/appendix-metrics.md",
+    "reference_sources": "/Users/flyonnet/Programming/openclaw_security/artifacts/paper-bundle/reference-sources.txt",
+    "reference_checksum": "/Users/flyonnet/Programming/openclaw_security/artifacts/paper-bundle/reference-checksum.txt",
+    "whitepaper_generated": "/Users/flyonnet/Programming/openclaw_security/artifacts/paper-bundle/WHITEPAPER_GENERATED.md",
+    "reproducibility_report": "/Users/flyonnet/Programming/openclaw_security/artifacts/paper-bundle/reproducibility-report.md"
+  }
+}

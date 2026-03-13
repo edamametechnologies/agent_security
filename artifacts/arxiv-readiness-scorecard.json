@@ -1,0 +1,157 @@
+{
+  "generated_at_utc": "2026-03-05T07:54:12Z",
+  "verdict": "NO_GO",
+  "evidence_source": {
+    "mode": "live",
+    "benchmark_mode": "live",
+    "total_runs": 273,
+    "precision": 0.8620689655172413,
+    "recall": 0.9868421052631579,
+    "seeds": 12,
+    "skipped_ratio": 0.3865168539325843,
+    "scenario_coverage_ratio": 0.86,
+    "group_coverage_ratio": 0.8333333333333334,
+    "category_count": 8,
+    "unknown_benchmark_rows": 0,
+    "manifest_valid_runs": 273,
+    "git_sha": "473465c"
+  },
+  "criteria": [
+    {
+      "id": "live_mode",
+      "description": "Benchmark mode is live (trace-backed, not synthetic)",
+      "passed": true,
+      "observed": "live",
+      "threshold": "== live",
+      "severity": "high"
+    },
+    {
+      "id": "reproducibility_manifest",
+      "description": "Manifest includes git SHA and scenario-set hash",
+      "passed": true,
+      "observed": {
+        "git_sha": "473465c",
+        "scenario_set_version": "22cb4a6cbddf88154435207c279143f7245de94dbc47c5803ca349eb10f3de1d"
+      },
+      "threshold": "git_sha != unknown AND scenario_set_version != unknown",
+      "severity": "high"
+    },
+    {
+      "id": "manifest_benchmark_mode_explicit",
+      "description": "Manifest benchmark_mode is explicit (not unknown)",
+      "passed": true,
+      "observed": "live",
+      "threshold": "!= unknown",
+      "severity": "high"
+    },
+    {
+      "id": "summary_benchmark_modes_explicit",
+      "description": "Summary has no unknown benchmark_mode rows",
+      "passed": true,
+      "observed": 0,
+      "threshold": "== 0",
+      "severity": "high"
+    },
+    {
+      "id": "summary_manifest_run_consistency",
+      "description": "Summary total_runs matches manifest valid_runs",
+      "passed": true,
+      "observed": {
+        "summary_total_runs": 273,
+        "manifest_valid_runs": 273
+      },
+      "threshold": "summary.total_runs == manifest.counts.valid_runs",
+      "severity": "high"
+    },
+    {
+      "id": "sample_size",
+      "description": "At least 100 total measured runs",
+      "passed": true,
+      "observed": 273,
+      "threshold": ">= 100",
+      "severity": "high"
+    },
+    {
+      "id": "precision_lower_bound",
+      "description": "Precision CI95 lower bound >= 0.85",
+      "passed": false,
+      "observed": 0.8149560047336936,
+      "threshold": ">= 0.85",
+      "severity": "high"
+    },
+    {
+      "id": "recall_lower_bound",
+      "description": "Recall CI95 lower bound >= 0.85",
+      "passed": true,
+      "observed": 0.9620350252457207,
+      "threshold": ">= 0.85",
+      "severity": "high"
+    },
+    {
+      "id": "seed_coverage",
+      "description": "At least 10 distinct seeds",
+      "passed": true,
+      "observed": 12,
+      "threshold": ">= 10",
+      "severity": "medium"
+    },
+    {
+      "id": "skip_ratio",
+      "description": "Skipped-run ratio <= 15%",
+      "passed": false,
+      "observed": {
+        "skipped_runs": 172,
+        "planned_runs": 445,
+        "skipped_ratio": 0.3865168539325843
+      },
+      "threshold": "<= 0.15",
+      "severity": "high"
+    },
+    {
+      "id": "scenario_coverage",
+      "description": "Scenario coverage ratio >= 80%",
+      "passed": true,
+      "observed": {
+        "covered_scenarios": 43,
+        "scenario_count": 50,
+        "coverage_ratio": 0.86
+      },
+      "threshold": ">= 0.80",
+      "severity": "high"
+    },
+    {
+      "id": "group_coverage",
+      "description": "Scenario-group coverage ratio >= 70%",
+      "passed": true,
+      "observed": {
+        "covered_groups": 25,
+        "group_count": 30,
+        "coverage_ratio": 0.8333333333333334
+      },
+      "threshold": ">= 0.70",
+      "severity": "medium"
+    },
+    {
+      "id": "category_diversity",
+      "description": "At least 5 evaluated categories",
+      "passed": true,
+      "observed": 8,
+      "threshold": ">= 5",
+      "severity": "high"
+    },
+    {
+      "id": "stability_recall_stddev",
+      "description": "Recall stddev across seeds <= 0.15",
+      "passed": true,
+      "observed": 0.07229988054812211,
+      "threshold": "<= 0.15",
+      "severity": "high"
+    }
+  ],
+  "stats": {
+    "total": 14,
+    "passed": 12,
+    "failed": 2,
+    "failed_high": 2
+  }
+}
