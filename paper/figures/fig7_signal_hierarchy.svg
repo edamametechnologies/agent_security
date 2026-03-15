@@ -6,7 +6,7 @@
   <rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
    <cc:Work>
     <dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"/>
-    <dc:date>2026-03-13T09:13:32.292579</dc:date>
+    <dc:date>2026-03-14T18:48:17.662536</dc:date>
     <dc:format>image/svg+xml</dc:format>
     <dc:creator>
      <cc:Agent>
@@ -40,7 +40,7 @@ Q 49.8816 41.109843 49.8816 42.023537
 L 49.8816 87.708243 
 Q 49.8816 88.621937 50.976 88.621937 
 z
-" clip-path="url(#p592325fb12)" style="fill: #d6e9f8; stroke: #3b7dd8; stroke-width: 1.5; stroke-linejoin: miter"/>
+" clip-path="url(#p3000adfed7)" style="fill: #d6e9f8; stroke: #3b7dd8; stroke-width: 1.5; stroke-linejoin: miter"/>
    </g>
    <g id="patch_3">
     <path d="M 72.864 166.285937 
@@ -53,7 +53,7 @@ Q 71.7696 118.773843 71.7696 119.687537
 L 71.7696 165.372243 
 Q 71.7696 166.285937 72.864 166.285937 
 z
-" clip-path="url(#p592325fb12)" style="fill: #fde8d0; stroke: #e8833a; stroke-width: 1.5; stroke-linejoin: miter"/>
+" clip-path="url(#p3000adfed7)" style="fill: #fde8d0; stroke: #e8833a; stroke-width: 1.5; stroke-linejoin: miter"/>
    </g>
    <g id="patch_4">
     <path d="M 94.752 243.949937 
@@ -66,7 +66,7 @@ Q 93.6576 196.437843 93.6576 197.351537
 L 93.6576 243.036243 
 Q 93.6576 243.949937 94.752 243.949937 
 z
-" clip-path="url(#p592325fb12)" style="fill: #e8dff0; stroke: #8e6fbf; stroke-width: 1.5; stroke-linejoin: miter"/>
+" clip-path="url(#p3000adfed7)" style="fill: #e8dff0; stroke: #8e6fbf; stroke-width: 1.5; stroke-linejoin: miter"/>
    </g>
    <g id="patch_5">
     <path d="M 116.64 321.613937 
@@ -79,11 +79,11 @@ Q 115.5456 274.101843 115.5456 275.015537
 L 115.5456 320.700243 
 Q 115.5456 321.613937 116.64 321.613937 
 z
-" clip-path="url(#p592325fb12)" style="fill: #f8d7da; stroke: #d9534f; stroke-width: 1.5; stroke-linejoin: miter"/>
+" clip-path="url(#p3000adfed7)" style="fill: #f8d7da; stroke: #d9534f; stroke-width: 1.5; stroke-linejoin: miter"/>
    </g>
    <g id="text_1">
     <!-- All Network Sessions -->
-    <g transform="translate(139.717172 62.423443) scale(0.082 -0.082)">
+    <g transform="translate(139.717172 62.48575) scale(0.082 -0.082)">
      <defs>
       <path id="DejaVuSans-41" d="M 2188 4044 
 L 1331 1722 
@@ -353,7 +353,7 @@ z
      <use xlink:href="#DejaVuSans-73" x="986.621094"/>
     </g>
     <!-- get_sessions() -->
-    <g transform="translate(153.0095 71.605649) scale(0.082 -0.082)">
+    <g transform="translate(153.0095 71.543342) scale(0.082 -0.082)">
      <defs>
       <path id="DejaVuSans-67" d="M 2906 1791 
 Q 2906 2416 2648 2759 
@@ -506,7 +506,7 @@ L 180.304 107.441095
    </g>
    <g id="text_3">
     <!-- Exception Sessions -->
-    <g transform="translate(143.042656 140.087443) scale(0.082 -0.082)">
+    <g transform="translate(143.042656 140.14975) scale(0.082 -0.082)">
      <defs>
       <path id="DejaVuSans-45" d="M 628 4666 
 L 3578 4666 
@@ -606,7 +606,7 @@ z
      <use xlink:href="#DejaVuSans-73" x="905.476562"/>
     </g>
     <!-- get_exceptions() -->
-    <g transform="translate(148.146516 149.269649) scale(0.082 -0.082)">
+    <g transform="translate(148.146516 149.207342) scale(0.082 -0.082)">
      <use xlink:href="#DejaVuSans-67"/>
      <use xlink:href="#DejaVuSans-65" x="63.476562"/>
      <use xlink:href="#DejaVuSans-74" x="125"/>
@@ -784,7 +784,7 @@ L 180.304 185.105095
    </g>
    <g id="text_5">
     <!-- Anomalous Sessions -->
-    <g transform="translate(140.421859 217.751443) scale(0.082 -0.082)">
+    <g transform="translate(140.421859 217.81375) scale(0.082 -0.082)">
      <defs>
       <path id="DejaVuSans-6d" d="M 3328 2828 
 Q 3544 3216 3844 3400 
@@ -892,7 +892,7 @@ z
      <use xlink:href="#DejaVuSans-73" x="969.433594"/>
     </g>
     <!-- get_anomalous_sessions() -->
-    <g transform="translate(128.451781 226.933649) scale(0.082 -0.082)">
+    <g transform="translate(128.451781 226.871342) scale(0.082 -0.082)">
      <use xlink:href="#DejaVuSans-67"/>
      <use xlink:href="#DejaVuSans-65" x="63.476562"/>
      <use xlink:href="#DejaVuSans-74" x="125"/>
@@ -1012,7 +1012,7 @@ L 180.304 262.769095
    </g>
    <g id="text_7">
     <!-- Blacklisted Sessions -->
-    <g transform="translate(140.981766 295.415443) scale(0.082 -0.082)">
+    <g transform="translate(143.501414 295.62288) scale(0.077 -0.077)">
      <defs>
       <path id="DejaVuSans-42" d="M 1259 2228 
 L 1259 519 
@@ -1095,7 +1095,7 @@ z
      <use xlink:href="#DejaVuSans-73" x="955.761719"/>
     </g>
     <!-- get_blacklisted_sessions() -->
-    <g transform="translate(128.929688 304.597649) scale(0.082 -0.082)">
+    <g transform="translate(132.184219 304.12818) scale(0.077 -0.077)">
      <defs>
       <path id="DejaVuSans-62" d="M 3116 1747 
 Q 3116 2381 2855 2742 
@@ -1565,7 +1565,7 @@ z
   </g>
  </g>
  <defs>
-  <clipPath id="p592325fb12">
+  <clipPath id="p3000adfed7">
    <rect x="7.2" y="28.318125" width="410.4" height="388.32"/>
   </clipPath>
  </defs>

@@ -1,3 +1,33 @@
 .DS_Store
 *.log
+
+# Cursor/IDE
+.cursor/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+
+# Generated figure PDFs (SVG/PNG are committed; PDFs are build artifacts)
 paper/figures/*.pdf
+
+# Visual review renders (ephemeral, regenerated on demand)
+paper/pdf-pages/review/
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+
+# Benchmark state files (resumable run state, not canonical artifacts)
+*.state.json
+
+# OS
+Thumbs.db

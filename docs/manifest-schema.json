@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/edamametechnologies/agent_security/docs/manifest-schema.json",
+  "title": "Benchmark Run Manifest",
+  "description": "Schema for the live benchmark run manifest produced by tests/benchmark/run_live_suite.py.",
+  "type": "object",
+  "required": [
+    "run_id",
+    "benchmark",
+    "mode",
+    "benchmark_mode",
+    "detection_mode",
+    "policy",
+    "seed",
+    "iterations",
+    "runner",
+    "git_sha",
+    "scenario_set_version",
+    "scenario_dir",
+    "scenario_count",
+    "group_count",
+    "scenario_groups",
+    "generated_at_utc",
+    "results",
+    "summary"
+  ],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "description": "Unique identifier for the benchmark run (format: run-{mode}-{timestamp}-{mode})."
+    },
+    "benchmark": {
+      "type": "string",
+      "const": "BadAgentUse",
+      "description": "Benchmark name."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["live", "replay"],
+      "description": "Execution mode."
+    },
+    "benchmark_mode": {
+      "type": "string",
+      "enum": ["live", "replay"],
+      "description": "Benchmark execution mode (mirrors mode)."
+    },
+    "resume_enabled": {
+      "type": "boolean",
+      "description": "Whether incremental resume was enabled."
+    },
+    "resumed": {
+      "type": "boolean",
+      "description": "Whether this run resumed from a previous state file."
+    },
+    "resume_state_path": {
+      "type": "string",
+      "description": "Path to the NDJSON state file used for resume."
+    },
+    "detection_mode": {
+      "type": "string",
+      "enum": ["cron", "prompt"],
+      "description": "How divergence detection is triggered."
+    },
+    "strict_proof": {
+      "type": "boolean",
+      "description": "Whether strict proof mode was enabled."
+    },
+    "policy": {
+      "type": "string",
+      "description": "Behavioral-model policy identifier."
+    },
+    "seed": {
+      "type": "integer",
+      "description": "Random seed for scenario ordering."
+    },
+    "iterations": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Number of iterations per scenario."
+    },
+    "runner": {
+      "type": "string",
+      "description": "Runner identifier (e.g. 'local')."
+    },
+    "git_sha": {
+      "type": "string",
+      "description": "Short git SHA of the repository at run time."
+    },
+    "scenario_set_version": {
+      "type": "string",
+      "description": "BLAKE3 hash of the concatenated scenario JSON files."
+    },
+    "scenario_dir": {
+      "type": "string",
+      "description": "Relative path to the scenario JSON directory."
+    },
+    "scenario_count": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Total number of scenario files."
+    },
+    "group_count": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Number of execution groups."
+    },
+    "scenario_groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["group_id", "scenario_ids", "evidence_process"],
+        "properties": {
+          "group_id": {
+            "type": "string",
+            "description": "Unique group identifier."
+          },
+          "scenario_ids": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Ordered list of scenario run IDs in this group."
+          },
+          "evidence_process": {
+            "type": "string",
+            "description": "Primary process used for evidence injection."
+          }
+        }
+      },
+      "description": "Grouped scenario execution plan."
+    },
+    "vm_name": {
+      "type": "string",
+      "description": "Lima VM instance name."
+    },
+    "posture": {
+      "type": "object",
+      "properties": {
+        "version": { "type": "string" },
+        "build": { "type": "string" }
+      },
+      "description": "EDAMAME Posture daemon version metadata."
+    },
+    "telemetry": {
+      "type": "string",
+      "description": "Telemetry backend identifier."
+    },
+    "kick_score": {
+      "type": "boolean",
+      "description": "Whether score-kick was enabled between scenarios."
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC timestamp when the manifest was generated."
+    },
+    "results": {
+      "type": "string",
+      "description": "Relative path to the NDJSON results file."
+    },
+    "summary": {
+      "type": "string",
+      "description": "Relative path to the summary JSON file."
+    },
+    "trace_root": {
+      "type": "string",
+      "description": "Relative path to per-scenario trace directories."
+    },
+    "cron": {
+      "type": "object",
+      "properties": {
+        "extrapolator_interval_s": { "type": "integer" },
+        "divergence_interval_s": { "type": "integer" },
+        "verdict_reader_offset_s": { "type": "integer" }
+      },
+      "description": "Cron cadence configuration used during the run."
+    },
+    "counts": {
+      "type": "object",
+      "properties": {
+        "total": { "type": "integer" },
+        "passed": { "type": "integer" },
+        "failed": { "type": "integer" },
+        "skipped": { "type": "integer" },
+        "error": { "type": "integer" }
+      },
+      "description": "Aggregate outcome counts."
+    },
+    "runs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["scenario_id", "outcome"],
+        "properties": {
+          "scenario_id": { "type": "string" },
+          "outcome": {
+            "type": "string",
+            "enum": ["pass", "fail", "skip", "error"]
+          },
+          "iteration": { "type": "integer" },
+          "group_id": { "type": "string" },
+          "elapsed_s": { "type": "number" }
+        }
+      },
+      "description": "Per-scenario run results."
+    }
+  }
+}

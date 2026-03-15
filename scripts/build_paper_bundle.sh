@@ -5,8 +5,15 @@ set -euo pipefail
 SUMMARY="${1:-artifacts/benchmark-summary.json}"
 MANIFEST="${2:-artifacts/run-manifest.json}"
 WHITEPAPER_SOURCE="${3:-paper/arxiv_draft.md}"
-SOUNDNESS_SOURCE="${4:-docs/SOUNDNESS_ANALYSIS_2026-02-18.md}"
-OUT_DIR="${5:-artifacts/paper-bundle}"
+SUPPORTING_EVIDENCE_SOURCE="${PAPER_SUPPORTING_EVIDENCE:-}"
+OUT_DIR="artifacts/paper-bundle"
+
+if [ "$#" -ge 5 ]; then
+    SUPPORTING_EVIDENCE_SOURCE="$4"
+    OUT_DIR="$5"
+elif [ "$#" -eq 4 ]; then
+    OUT_DIR="$4"
+fi
 
 if [ ! -f "$SUMMARY" ]; then
     echo "Missing benchmark summary: $SUMMARY"
@@ -29,6 +36,17 @@ if [ "$source_metrics_start_count" -ne 1 ] || [ "$source_metrics_end_count" -ne 
     echo "Whitepaper source must contain exactly one AUTO_METRICS_START/END marker pair: $WHITEPAPER_SOURCE"
     exit 1
 fi
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+_relpath() {
+    python3 -c "import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))" "$(cd "$(dirname "$1")" && pwd)/$(basename "$1")" "$REPO_ROOT"
+}
+
+REL_SUMMARY="$(_relpath "$SUMMARY")"
+REL_MANIFEST="$(_relpath "$MANIFEST")"
+REL_WHITEPAPER="$(_relpath "$WHITEPAPER_SOURCE")"
+REL_OUT_DIR="$(_relpath "$OUT_DIR")"
 
 mkdir -p "$OUT_DIR"
 
@@ -79,7 +97,7 @@ refs_checksum=$(shasum -a 256 "$OUT_DIR/reference-sources.txt" | awk "{print \$1
 
 cat > "$OUT_DIR/reference-checksum.txt" <<EOF
 references_sha256=$refs_checksum
-source_file=$WHITEPAPER_SOURCE
+source_file=$REL_WHITEPAPER
 generated_at_utc=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 EOF
 
@@ -184,10 +202,10 @@ cat > "$OUT_DIR/reproducibility-report.md" <<EOF
 
 ## Input Artifacts
 
-- Benchmark summary: \`$SUMMARY\`
-- Run manifest: \`$MANIFEST\`
-- Whitepaper source: \`$WHITEPAPER_SOURCE\`
-- Soundness source: \`$SOUNDNESS_SOURCE\`
+- Benchmark summary: \`$REL_SUMMARY\`
+- Run manifest: \`$REL_MANIFEST\`
+- Whitepaper source: \`$REL_WHITEPAPER\`
+- Supporting evidence source: \`${SUPPORTING_EVIDENCE_SOURCE:+$(_relpath "$SUPPORTING_EVIDENCE_SOURCE")}${SUPPORTING_EVIDENCE_SOURCE:-none (public bundle mode)}\`
 
 ## Suggested Reproduction Commands
 
@@ -198,28 +216,33 @@ $suggested_repro_cmd
 ## Checksums
 
 \`\`\`
-$(shasum -a 256 "$SUMMARY")
-$(shasum -a 256 "$MANIFEST")
-$(shasum -a 256 "$WHITEPAPER_SOURCE")
-$( [ -f "$SOUNDNESS_SOURCE" ] && shasum -a 256 "$SOUNDNESS_SOURCE" || echo "missing $SOUNDNESS_SOURCE")
+$(shasum -a 256 "$SUMMARY" | awk -v rp="$REL_SUMMARY" '{print $1 "  " rp}')
+$(shasum -a 256 "$MANIFEST" | awk -v rp="$REL_MANIFEST" '{print $1 "  " rp}')
+$(shasum -a 256 "$WHITEPAPER_SOURCE" | awk -v rp="$REL_WHITEPAPER" '{print $1 "  " rp}')
+$( [ -n "$SUPPORTING_EVIDENCE_SOURCE" ] && [ -f "$SUPPORTING_EVIDENCE_SOURCE" ] && shasum -a 256 "$SUPPORTING_EVIDENCE_SOURCE" | awk -v rp="$(_relpath "$SUPPORTING_EVIDENCE_SOURCE")" '{print $1 "  " rp}' || true )
 \`\`\`
 EOF
+
+REL_EVIDENCE_JSON="null"
+if [ -n "$SUPPORTING_EVIDENCE_SOURCE" ]; then
+  REL_EVIDENCE_JSON="$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$(_relpath "$SUPPORTING_EVIDENCE_SOURCE")")"
+fi
 
 cat > "$OUT_DIR/bundle-index.json" <<EOF
 {
   "generated_at_utc": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
   "inputs": {
-    "benchmark_summary": "$SUMMARY",
-    "run_manifest": "$MANIFEST",
-    "whitepaper_source": "$WHITEPAPER_SOURCE",
-    "soundness_source": "$SOUNDNESS_SOURCE"
+    "benchmark_summary": "$REL_SUMMARY",
+    "run_manifest": "$REL_MANIFEST",
+    "whitepaper_source": "$REL_WHITEPAPER",
+    "supporting_evidence_source": $REL_EVIDENCE_JSON
   },
   "outputs": {
-    "appendix_metrics": "$OUT_DIR/appendix-metrics.md",
-    "reference_sources": "$OUT_DIR/reference-sources.txt",
-    "reference_checksum": "$OUT_DIR/reference-checksum.txt",
-    "whitepaper_generated": "$OUT_DIR/WHITEPAPER_GENERATED.md",
-    "reproducibility_report": "$OUT_DIR/reproducibility-report.md"
+    "appendix_metrics": "$REL_OUT_DIR/appendix-metrics.md",
+    "reference_sources": "$REL_OUT_DIR/reference-sources.txt",
+    "reference_checksum": "$REL_OUT_DIR/reference-checksum.txt",
+    "whitepaper_generated": "$REL_OUT_DIR/WHITEPAPER_GENERATED.md",
+    "reproducibility_report": "$REL_OUT_DIR/reproducibility-report.md"
   }
 }
 EOF

@@ -12,9 +12,9 @@ artifact lineage that supports them.
 
 Current committed manifest binding:
 
-- `run_id`: `run-live-20260304T234441Z-live`
-- `git_sha`: `473465c`
-- `scenario_set_version`: `22cb4a6cbddf88154435207c279143f7245de94dbc47c5803ca349eb10f3de1d`
+- `run_id`: `run-live-20260313T194140Z-live`
+- `git_sha`: `aca9156`
+- `scenario_set_version`: `fa1266a7eb7b2645ecad1b31258ea661710f47bd1cba01ffef5817536a04b4aa`
 - `mode`: `live`
 - `benchmark_mode`: `live` (all runs use live trace-backed skill-native reasoning)
 

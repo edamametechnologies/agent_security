@@ -1,0 +1,24 @@
+sequenceDiagram
+    participant Script as demo_exec_scenario.sh
+    participant VM as Lima VM
+    participant EX as Extrapolator Cron
+    participant RT as EDAMAME Runtime
+
+    Script->>VM: start_services
+    Script->>EX: enable_fast_cron (*/2 min; prod */5)
+    Script->>RT: wait for baseline model + telemetry cycle
+    Note over RT: Internal loops: divergence/intent, vulnerability/safety-floor, advisor/remediation; prod default 300 s, demo 60 s
+
+    loop Each Scenario
+        Script->>VM: inject_<threat>()
+        Script->>VM: wait_for_session + wait_for_l7
+        Note over EX,RT: extrapolator reads session history and publishes intent slice; explicit-slice benchmarks bypass this lane
+        Note over RT: divergence correlates intent vs telemetry; vulnerability evaluates model-independent guardrails
+        Note over RT: internal alerting routes actionable divergence findings (Telegram, Slack)
+        Script->>RT: poll get_divergence_verdict
+        Script->>Script: assert verdict
+        Script->>VM: cleanup_<threat>()
+        Script->>Script: write_scenario_artifacts
+    end
+
+    Script->>EX: restore_production_cron

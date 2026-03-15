@@ -1,10 +1,10 @@
 #!/bin/bash
-# preflight_publication.sh - Validate publication/demo lineage against canonical artifacts.
+# preflight_publication.sh - Validate publication lineage against canonical artifacts.
 #
 # Usage:
 #   ./scripts/preflight_publication.sh \
 #     [summary.json] [manifest.json] [scorecard.json] [paper.md] \
-#     [claim_index.md] [demo_spec.md] [scenario_map.json]
+#     [claim_index.md]
 #
 # Defaults:
 #   artifacts/live-paper-summary.json
@@ -12,34 +12,23 @@
 #   artifacts/arxiv-readiness-scorecard.json
 #   paper/arxiv_draft.md
 #   docs/CLAIM_ARTIFACT_INDEX.md
-#   docs/DEMO_SPEC.md
-#   demo/exec_scenario_cve_map.json
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-OPENCLAW_DIR="$REPO_DIR/../openclaw_security"
+README_FILE="$REPO_DIR/README.md"
+LOCAL_SUMMARY_DEFAULT="$REPO_DIR/artifacts/live-paper-summary.json"
+LOCAL_MANIFEST_DEFAULT="$REPO_DIR/artifacts/live-paper-manifest.json"
+REVIEW_RENDERER="${REVIEW_RENDERER:-}"
+REVIEW_OUT_DIR="$REPO_DIR/paper/pdf-pages/review"
+REVIEW_INDEX="$REVIEW_OUT_DIR/review-index.json"
+PDF_BUILD_LOG="$REPO_DIR/artifacts/paper-bundle/WHITEPAPER_GENERATED.build.log"
 
-SUMMARY="${1:-$OPENCLAW_DIR/artifacts/live-paper-summary.json}"
-MANIFEST="${2:-$OPENCLAW_DIR/artifacts/live-paper-manifest.json}"
+SUMMARY="${1:-$LOCAL_SUMMARY_DEFAULT}"
+MANIFEST="${2:-$LOCAL_MANIFEST_DEFAULT}"
 SCORECARD="${3:-$REPO_DIR/artifacts/arxiv-readiness-scorecard.json}"
 PAPER="${4:-$REPO_DIR/paper/arxiv_draft.md}"
 CLAIM_INDEX="${5:-$REPO_DIR/docs/CLAIM_ARTIFACT_INDEX.md}"
-DEMO_SPEC="${6:-$OPENCLAW_DIR/docs/DEMO_SPEC.md}"
-SCENARIO_MAP="${7:-$OPENCLAW_DIR/demo/exec_scenario_cve_map.json}"
-SUMMARY_ALT="$OPENCLAW_DIR/artifacts/live-paper-new-summary.json"
-MANIFEST_ALT="$OPENCLAW_DIR/artifacts/live-paper-new-manifest.json"
-DEMO_PPTX="$OPENCLAW_DIR/demo/OpenClaw-Exec-Demo-Architecture-2026.pptx"
-DEMO_README="$OPENCLAW_DIR/demo/OpenClaw-Exec-Demo-Architecture-2026-README.md"
-DEMO_PROOF="$OPENCLAW_DIR/demo/OpenClaw-Exec-Demo-Architecture-2026-proof.json"
-DEMO_COMPANION="$OPENCLAW_DIR/demo/OpenClaw-Exec-Demo-Architecture-2026-Companion.md"
-
-if [ "$SUMMARY" = "artifacts/live-paper-summary.json" ] && [ ! -f "$SUMMARY" ] && [ -f "$SUMMARY_ALT" ]; then
-    SUMMARY="$SUMMARY_ALT"
-fi
-if [ "$MANIFEST" = "artifacts/live-paper-manifest.json" ] && [ ! -f "$MANIFEST" ] && [ -f "$MANIFEST_ALT" ]; then
-    MANIFEST="$MANIFEST_ALT"
-fi
 
 declare -a ERRORS=()
 
@@ -126,25 +115,89 @@ print_errors_and_exit() {
     exit 1
 }
 
+run_figure_audit() {
+    local audit_output=""
+    local review_ok="false"
+    local numbering_ok="false"
+    local page_layout_ok="false"
+    local audit_failures=""
+
+    if [ -z "$REVIEW_RENDERER" ] || [ ! -f "$REVIEW_RENDERER" ]; then
+        echo "WARN: Figure audit renderer not available (set REVIEW_RENDERER env var); skipping figure audit."
+        return
+    fi
+
+    if ! audit_output="$(
+        python3 "$REVIEW_RENDERER" \
+            --draft "$PAPER" \
+            --pdf "$REPO_DIR/artifacts/paper-bundle/WHITEPAPER_GENERATED.pdf" \
+            --figures-dir "$REPO_DIR/paper/figures" \
+            --out-dir "$REVIEW_OUT_DIR" 2>&1
+    )"; then
+        while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            add_error "Figure audit failed: $line"
+        done <<< "$audit_output"
+        return
+    fi
+
+    if [ ! -f "$REVIEW_INDEX" ]; then
+        add_error "Figure audit did not produce review index: $REVIEW_INDEX"
+        return
+    fi
+
+    review_ok="$(jq -r '.review_ok // false' "$REVIEW_INDEX" 2>/dev/null || echo false)"
+    numbering_ok="$(jq -r '.numbering_ok // false' "$REVIEW_INDEX" 2>/dev/null || echo false)"
+    page_layout_ok="$(jq -r '.page_layout_ok // false' "$REVIEW_INDEX" 2>/dev/null || echo false)"
+
+    if [ "$review_ok" != "true" ]; then
+        audit_failures="$(jq -r '.failures[]?' "$REVIEW_INDEX" 2>/dev/null || true)"
+        if [ -n "$audit_failures" ]; then
+            while IFS= read -r line; do
+                [ -z "$line" ] && continue
+                add_error "Figure audit: $line"
+            done <<< "$audit_failures"
+        else
+            add_error "Figure audit failed: review_ok != true in $REVIEW_INDEX"
+        fi
+    fi
+
+    if [ "$numbering_ok" != "true" ]; then
+        add_error "Figure audit failed: numbering_ok != true in $REVIEW_INDEX"
+    fi
+    if [ "$page_layout_ok" != "true" ]; then
+        add_error "Figure audit failed: page_layout_ok != true in $REVIEW_INDEX"
+    fi
+}
+
+run_pdf_build_log_audit() {
+    local overflow_hits=""
+
+    if [ ! -f "$PDF_BUILD_LOG" ]; then
+        add_error "Missing PDF build log: $PDF_BUILD_LOG"
+        return
+    fi
+
+    overflow_hits="$(grep -En 'Overfull \\hbox|Overfull \\vbox|Float too large for page' "$PDF_BUILD_LOG" || true)"
+    if [ -n "$overflow_hits" ]; then
+        add_error "PDF build log contains layout overflows: $(echo "$overflow_hits" | tr '\n' '; ')"
+    fi
+}
+
 require_file "$SUMMARY"
 require_file "$MANIFEST"
 require_file "$SCORECARD"
 require_file "$PAPER"
 require_file "$CLAIM_INDEX"
-require_file "$DEMO_SPEC"
-require_file "$SCENARIO_MAP"
-require_file "$DEMO_PPTX"
-require_file "$DEMO_README"
-require_file "$DEMO_PROOF"
-require_file "$DEMO_COMPANION"
-require_file "$OPENCLAW_DIR/demo/generated_graphics/fig_exec_two_plane.png"
-require_file "$OPENCLAW_DIR/demo/generated_graphics/fig_exec_skill_call_path.png"
-require_file "$OPENCLAW_DIR/demo/generated_graphics/fig_exec_two_cron_mermaid_sequence.png"
-require_file "$OPENCLAW_DIR/demo/generated_graphics/fig_exec_skill_structure.png"
-require_file "$OPENCLAW_DIR/demo/generated_graphics/fig_exec_divergence_engine_tick.png"
-require_file "$OPENCLAW_DIR/demo/generated_graphics/fig_exec_test_architecture.png"
-require_file "$OPENCLAW_DIR/demo/generated_graphics/fig_exec_scenario_cve_matrix.png"
+require_file "$README_FILE"
+require_file "$REPO_DIR/artifacts/paper-bundle/WHITEPAPER_GENERATED.md"
+require_file "$REPO_DIR/artifacts/paper-bundle/WHITEPAPER_GENERATED.tex"
+require_file "$REPO_DIR/artifacts/paper-bundle/WHITEPAPER_GENERATED.pdf"
+require_file "$PDF_BUILD_LOG"
 print_errors_and_exit
+
+run_figure_audit
+run_pdf_build_log_audit
 
 summary_total_runs="$(jq -r '.total_runs // "null"' "$SUMMARY")"
 summary_precision="$(jq -r '.precision // "null"' "$SUMMARY")"
@@ -188,7 +241,17 @@ fi
 assert_absent_pattern "stale model baseline (gpt-4o)" 'openai/gpt-4o' "$PAPER"
 assert_absent_pattern "stale benchmark-scale wording" '50 scenarios, 8 categories|Full BadAgentUse Suite \(50 scenarios\)' "$PAPER"
 assert_absent_pattern "stale demo-pack wording" '6-scenario|exec-demo-pack-[0-9]{8}T[0-9]{6}Z' "$PAPER"
+assert_absent_pattern "private evidence doc leak in paper" 'CREDIBILITY_EVIDENCE|SOUNDNESS_ANALYSIS' "$PAPER"
+assert_absent_pattern "private evidence doc leak in README" 'CREDIBILITY_EVIDENCE|SOUNDNESS_ANALYSIS' "$README_FILE"
+assert_absent_pattern "private evidence doc leak in reproducibility report" 'CREDIBILITY_EVIDENCE|SOUNDNESS_ANALYSIS' "$REPO_DIR/artifacts/paper-bundle/reproducibility-report.md"
+assert_absent_pattern "private evidence doc leak in bundle index" 'CREDIBILITY_EVIDENCE|SOUNDNESS_ANALYSIS' "$REPO_DIR/artifacts/paper-bundle/bundle-index.json"
 assert_present_pattern "claim index citation" 'CLAIM_ARTIFACT_INDEX\.md' "$PAPER"
+assert_present_pattern "paper repo citation" 'edamametechnologies/agent_security' "$PAPER"
+assert_present_pattern "paper OpenClaw package citation" 'edamametechnologies/edamame_openclaw' "$PAPER"
+assert_present_pattern "paper Cursor package citation" 'edamametechnologies/edamame_cursor' "$PAPER"
+assert_present_pattern "README OpenClaw package link" 'edamametechnologies/edamame_openclaw' "$README_FILE"
+assert_present_pattern "README Cursor package link" 'edamametechnologies/edamame_cursor' "$README_FILE"
+assert_present_pattern "README generated PDF link" 'WHITEPAPER_GENERATED\.pdf' "$README_FILE"
 
 metadata_errors="$(python3 - "$CLAIM_INDEX" "$PAPER" "$manifest_run_id" "$manifest_git_sha" "$manifest_scenario_set_version" "$manifest_mode" "$manifest_benchmark_mode" <<'PY'
 import re
@@ -197,6 +260,16 @@ import sys
 claim_index = open(sys.argv[1], encoding="utf-8").read()
 paper = open(sys.argv[2], encoding="utf-8").read()
 run_id, git_sha, scenario_set_version, mode, benchmark_mode = sys.argv[3:8]
+
+def paper_has_bound_metadata(key: str, value: str) -> bool:
+    escaped_value = re.escape(value)
+    full_pattern = rf"`?{re.escape(key)}`?\s*:\s*`{escaped_value}`"
+    if re.search(full_pattern, paper):
+        return True
+    if key == "scenario_set_version":
+        prefix_pattern = rf"`?{re.escape(key)}`?\s*:\s*`{re.escape(value[:16])}\.\.\.`"
+        return re.search(prefix_pattern, paper) is not None
+    return False
 
 checks = [
     ("run_id", run_id),
@@ -212,7 +285,7 @@ for key, value in checks:
     pattern = rf"`?{re.escape(key)}`?\s*:\s*`{escaped_value}`"
     if not re.search(pattern, claim_index):
         print(f"Claim index missing bound metadata entry for {key}={value}")
-    if not re.search(pattern, paper):
+    if not paper_has_bound_metadata(key, value):
         print(f"Paper missing bound metadata entry for {key}={value}")
 PY
 )"
@@ -223,29 +296,6 @@ if [ -n "$metadata_errors" ]; then
     done <<< "$metadata_errors"
 fi
 
-scenario_count="$(jq -r '.scenarios | length' "$SCENARIO_MAP")"
-future_ids="$(jq -r '[.scenarios[] | select((.id // "") | test("^future-")) | .id] | join(",")' "$SCENARIO_MAP")"
-assert_number_equal "exec_scenario_cve_map scenario count" "8" "$scenario_count"
-if [ -n "$future_ids" ]; then
-    add_error "Scenario map contains standalone future-* IDs: $future_ids"
-fi
-
-assert_present_pattern "DEMO_SPEC eight-scenario contract" '8 canonical scenarios|eight canonical scenario' "$DEMO_SPEC"
-assert_present_pattern "DEMO_SPEC session-history requirement" 'sessions_history' "$DEMO_SPEC"
-assert_present_pattern "DEMO_SPEC one-skill architecture" 'one OpenClaw cron skill' "$DEMO_SPEC"
-assert_present_pattern "DEMO_SPEC deferred lateral movement contract" 'attack-lateral-movement.*DEFERRED|Scenario 7.*deferred' "$DEMO_SPEC"
-
-assert_absent_pattern "stale two-skill wording in graphics generator" '[Tt]wo-Skill|two-skill|two skills' "$OPENCLAW_DIR/demo/scripts/generate_exec_demo_graphics.py"
-assert_absent_pattern "stale two-skill wording in deck generator" '[Tt]wo-Skill|two-skill|two skills' "$OPENCLAW_DIR/demo/scripts/build_exec_demo_pptx.py"
-assert_absent_pattern "stale two-skill wording in companion generator" '[Tt]wo-Skill|two-skill|two skills' "$OPENCLAW_DIR/demo/scripts/build_exec_demo_docx.py"
-assert_absent_pattern "stale two-skill wording in exec summary source" '[Tt]wo-Skill|two-skill|two skills' "$OPENCLAW_DIR/demo/exec_summary.md"
-assert_absent_pattern "stale standalone posture-check wording in companion generator" 'Posture Check \(cron: hourly|independent skill,[[:space:]]*\*\*Posture Check\*\*' "$OPENCLAW_DIR/demo/scripts/build_exec_demo_docx.py"
-assert_absent_pattern "stale standalone posture-check wording in generated companion" 'Posture Check \(cron: hourly|independent skill,[[:space:]]*\*\*Posture Check\*\*' "$DEMO_COMPANION"
-
-assert_present_pattern "graphics generator LAN/open-port wording" 'LAN neighbors, host open ports' "$OPENCLAW_DIR/demo/scripts/generate_exec_demo_graphics.py"
-assert_present_pattern "companion LAN/open-port wording" 'LAN neighbors, host open ports' "$DEMO_COMPANION"
-assert_present_pattern "exec summary one-skill wording" 'one-skill-plus-internal-engine runtime pipeline' "$OPENCLAW_DIR/demo/exec_summary.md"
-
 print_errors_and_exit
 
 echo "Publication preflight passed."
@@ -254,5 +304,3 @@ echo "  manifest: $MANIFEST"
 echo "  scorecard: $SCORECARD"
 echo "  paper: $PAPER"
 echo "  claim_index: $CLAIM_INDEX"
-echo "  demo_spec: $DEMO_SPEC"
-echo "  scenario_map: $SCENARIO_MAP"

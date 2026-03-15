@@ -1,0 +1,270 @@
+{
+  "benchmark": "BadAgentUse",
+  "generated_at_utc": "2026-03-14T13:30:12Z",
+  "total_runs": 468,
+  "confusion_matrix": {
+    "tp": 317,
+    "fp": 0,
+    "fn": 31,
+    "tn": 120
+  },
+  "precision": 1,
+  "recall": 0.9109195402298851,
+  "DSR": 0.9109195402298851,
+  "FPR": 0,
+  "FNR": 0.08908045977011494,
+  "ASR": 0.08908045977011494,
+  "FT": 0,
+  "precision_ci95": {
+    "low": 0.988026490330431,
+    "high": 1
+  },
+  "recall_ci95": {
+    "low": 0.8763311151407897,
+    "high": 0.9365346744645328
+  },
+  "DSR_ci95": {
+    "low": 0.8763311151407897,
+    "high": 0.9365346744645328
+  },
+  "FPR_ci95": {
+    "low": 0,
+    "high": 0.031020271055929513
+  },
+  "TTD": {
+    "median_ms": 51817,
+    "p95_ms": 66879,
+    "mean_ms": 53833.95899053628
+  },
+  "median_latency_ms": 51590,
+  "p95_latency_ms": 66879,
+  "rollback_reliability": 1,
+  "rollback": {
+    "attempts": 317,
+    "success": 317,
+    "failure": 0
+  },
+  "categories": [
+    {
+      "category": "adversarial-evasion",
+      "runs": 80,
+      "divergences": 50,
+      "precision": 1,
+      "recall": 0.625,
+      "DSR": 0.625,
+      "FPR": null,
+      "FNR": 0.375,
+      "ASR": 0.375,
+      "precision_ci95": {
+        "low": 0.9286499658256813,
+        "high": 1
+      },
+      "recall_ci95": {
+        "low": 0.515485228513904,
+        "high": 0.7230598374199522
+      }
+    },
+    {
+      "category": "credential-network-combined",
+      "runs": 10,
+      "divergences": 10,
+      "precision": 1,
+      "recall": 1,
+      "DSR": 1,
+      "FPR": null,
+      "FNR": 0,
+      "ASR": 0,
+      "precision_ci95": {
+        "low": 0.7224598312333834,
+        "high": 1
+      },
+      "recall_ci95": {
+        "low": 0.7224598312333834,
+        "high": 1
+      }
+    },
+    {
+      "category": "credential-theft-detection",
+      "runs": 30,
+      "divergences": 30,
+      "precision": 1,
+      "recall": 1,
+      "DSR": 1,
+      "FPR": null,
+      "FNR": 0,
+      "ASR": 0,
+      "precision_ci95": {
+        "low": 0.8864829086095221,
+        "high": 1
+      },
+      "recall_ci95": {
+        "low": 0.8864829086095221,
+        "high": 1
+      }
+    },
+    {
+      "category": "intent-proof-floor",
+      "runs": 59,
+      "divergences": 59,
+      "precision": 1,
+      "recall": 1,
+      "DSR": 1,
+      "FPR": null,
+      "FNR": 0,
+      "ASR": 0,
+      "precision_ci95": {
+        "low": 0.938868520215908,
+        "high": 1
+      },
+      "recall_ci95": {
+        "low": 0.938868520215908,
+        "high": 1
+      }
+    },
+    {
+      "category": "lateral-movement",
+      "runs": 10,
+      "divergences": 10,
+      "precision": 1,
+      "recall": 1,
+      "DSR": 1,
+      "FPR": null,
+      "FNR": 0,
+      "ASR": 0,
+      "precision_ci95": {
+        "low": 0.7224598312333834,
+        "high": 1
+      },
+      "recall_ci95": {
+        "low": 0.7224598312333834,
+        "high": 1
+      }
+    },
+    {
+      "category": "network-intent-correlation",
+      "runs": 160,
+      "divergences": 99,
+      "precision": 1,
+      "recall": 0.99,
+      "DSR": 0.99,
+      "FPR": 0,
+      "FNR": 0.01,
+      "ASR": 0.01,
+      "precision_ci95": {
+        "low": 0.9626454664260378,
+        "high": 1
+      },
+      "recall_ci95": {
+        "low": 0.9455124752390653,
+        "high": 0.9982326134344526
+      }
+    },
+    {
+      "category": "noisy-benign",
+      "runs": 60,
+      "divergences": 0,
+      "precision": null,
+      "recall": null,
+      "DSR": null,
+      "FPR": 0,
+      "FNR": null,
+      "ASR": null,
+      "precision_ci95": {
+        "low": null,
+        "high": null
+      },
+      "recall_ci95": {
+        "low": null,
+        "high": null
+      }
+    },
+    {
+      "category": "process-lineage-verification",
+      "runs": 59,
+      "divergences": 59,
+      "precision": 1,
+      "recall": 1,
+      "DSR": 1,
+      "FPR": null,
+      "FNR": 0,
+      "ASR": 0,
+      "precision_ci95": {
+        "low": 0.938868520215908,
+        "high": 1
+      },
+      "recall_ci95": {
+        "low": 0.938868520215908,
+        "high": 1
+      }
+    }
+  ],
+  "by_mode": [
+    {
+      "mode": "live",
+      "runs": 468
+    }
+  ],
+  "by_benchmark_mode": [
+    {
+      "benchmark_mode": "live",
+      "runs": 468
+    }
+  ],
+  "stability": {
+    "seeds_evaluated": 10,
+    "by_seed": [
+      {
+        "seed": 42,
+        "precision": 1,
+        "recall": 0.9142857142857143
+      },
+      {
+        "seed": 43,
+        "precision": 1,
+        "recall": 0.9142857142857143
+      },
+      {
+        "seed": 44,
+        "precision": 1,
+        "recall": 0.9142857142857143
+      },
+      {
+        "seed": 45,
+        "precision": 1,
+        "recall": 0.9142857142857143
+      },
+      {
+        "seed": 46,
+        "precision": 1,
+        "recall": 0.9142857142857143
+      },
+      {
+        "seed": 47,
+        "precision": 1,
+        "recall": 0.9142857142857143
+      },
+      {
+        "seed": 48,
+        "precision": 1,
+        "recall": 0.9142857142857143
+      },
+      {
+        "seed": 49,
+        "precision": 1,
+        "recall": 0.9142857142857143
+      },
+      {
+        "seed": 50,
+        "precision": 1,
+        "recall": 0.9090909090909091
+      },
+      {
+        "seed": 51,
+        "precision": 1,
+        "recall": 0.8857142857142857
+      }
+    ],
+    "precision_stddev": 0,
+    "recall_stddev": 0.009001831155373185
+  }
+}

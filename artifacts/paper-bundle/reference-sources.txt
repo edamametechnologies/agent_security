@@ -2,61 +2,63 @@
 
 ### Attack Surface and Benchmarks
 
-- Kai Greshake, Sahar Abdelnabi, Shailesh Mishra, Christoph Endres, Thorsten Holz, Mario Fritz. "Not what you've signed up for: Compromising Real-World LLM-Integrated Applications with Indirect Prompt Injection." arXiv:2302.12173 (2023). https://arxiv.org/abs/2302.12173
-- Qiusi Zhan, Zhixiang Liang, Zifan Ying, Daniel Kang. "InjecAgent: Benchmarking Indirect Prompt Injections in Tool-Integrated Large Language Model Agents." arXiv:2403.02691 (2024). https://arxiv.org/abs/2403.02691
-- "Exfiltration of personal information from ChatGPT via prompt injection." arXiv:2406.00199 (2024). https://arxiv.org/abs/2406.00199
-- Saeid Jamshidi et al. "Securing the Model Context Protocol: Defending LLMs Against Tool Poisoning and Adversarial Attacks." arXiv:2512.06556 (2025). https://arxiv.org/abs/2512.06556
-- Luo et al. "MCPTox: A Benchmark for Tool Poisoning Attack on Real-World MCP Servers." arXiv:2508.14925 (2025). https://arxiv.org/abs/2508.14925
-- Wang et al. "MCP Security Bench (MSB): Benchmarking Attacks Against Model Context Protocol in LLM Agents." arXiv:2510.15994 (2025). https://arxiv.org/abs/2510.15994
-- Zhou et al. "Technical Report: Evaluating Goal Drift in Language Model Agents." arXiv:2505.02709 (2025). https://arxiv.org/abs/2505.02709
+- Kai Greshake, Sahar Abdelnabi, Shailesh Mishra, Christoph Endres, Thorsten Holz, Mario Fritz. "Not what you've signed up for: Compromising Real-World LLM-Integrated Applications with Indirect Prompt Injection." arXiv:2302.12173 (2023). [arXiv:2302.12173](https://arxiv.org/abs/2302.12173)
+- Qiusi Zhan, Zhixiang Liang, Zifan Ying, Daniel Kang. "InjecAgent: Benchmarking Indirect Prompt Injections in Tool-Integrated Large Language Model Agents." arXiv:2403.02691 (2024). [arXiv:2403.02691](https://arxiv.org/abs/2403.02691)
+- "Exfiltration of personal information from ChatGPT via prompt injection." arXiv:2406.00199 (2024). [arXiv:2406.00199](https://arxiv.org/abs/2406.00199)
+- Saeid Jamshidi et al. "Securing the Model Context Protocol: Defending LLMs Against Tool Poisoning and Adversarial Attacks." arXiv:2512.06556 (2025). [arXiv:2512.06556](https://arxiv.org/abs/2512.06556)
+- Luo et al. "MCPTox: A Benchmark for Tool Poisoning Attack on Real-World MCP Servers." arXiv:2508.14925 (2025). [arXiv:2508.14925](https://arxiv.org/abs/2508.14925)
+- Wang et al. "MCP Security Bench (MSB): Benchmarking Attacks Against Model Context Protocol in LLM Agents." arXiv:2510.15994 (2025). [arXiv:2510.15994](https://arxiv.org/abs/2510.15994)
+- Zhou et al. "Technical Report: Evaluating Goal Drift in Language Model Agents." arXiv:2505.02709 (2025). [arXiv:2505.02709](https://arxiv.org/abs/2505.02709)
 
 ### Runtime Defense Systems
 
-- "AgentArmor: Enforcing Program Analysis on Agent Runtime Trace to Defend Against Prompt Injection." arXiv:2508.01249 (2025). https://arxiv.org/abs/2508.01249
-- "LlamaFirewall: An open source guardrail system for building secure AI agents." arXiv:2505.03574 (2025). https://arxiv.org/abs/2505.03574
-- Li et al. "AegisLLM: Scaling Agentic Systems for Self-Reflective Defense in LLM Security." arXiv:2504.20965 (2025). https://arxiv.org/abs/2504.20965
-- Wallarm et al. "A2AS: Agentic AI Runtime Security and Self-Defense." arXiv:2510.13825 (2025). https://arxiv.org/abs/2510.13825
-- "MI9: An Integrated Runtime Governance Framework for Agentic AI." arXiv:2508.03858 (2025). https://arxiv.org/abs/2508.03858
-- "AgentSentinel: An End-to-End and Real-Time Security Defense Framework for Computer-Use Agents." arXiv:2509.07764 (2025). https://arxiv.org/abs/2509.07764
-- Zhang et al. "Pro2Guard: Proactive Runtime Enforcement of LLM Agent Safety via Probabilistic Model Checking." arXiv:2508.00500 (2025). https://arxiv.org/abs/2508.00500
-- Chen et al. "MCP-Guard: A Multi-Stage Defense-in-Depth Framework for Securing Model Context Protocol in Agentic AI." arXiv:2508.10991 (2025). https://arxiv.org/abs/2508.10991
-- "Securing AI Agent Execution." arXiv:2510.21236 (2025). https://arxiv.org/abs/2510.21236
+- "AgentArmor: Enforcing Program Analysis on Agent Runtime Trace to Defend Against Prompt Injection." arXiv:2508.01249 (2025). [arXiv:2508.01249](https://arxiv.org/abs/2508.01249)
+- "LlamaFirewall: An open source guardrail system for building secure AI agents." arXiv:2505.03574 (2025). [arXiv:2505.03574](https://arxiv.org/abs/2505.03574)
+- Li et al. "AegisLLM: Scaling Agentic Systems for Self-Reflective Defense in LLM Security." arXiv:2504.20965 (2025). [arXiv:2504.20965](https://arxiv.org/abs/2504.20965)
+- Wallarm et al. "A2AS: Agentic AI Runtime Security and Self-Defense." arXiv:2510.13825 (2025). [arXiv:2510.13825](https://arxiv.org/abs/2510.13825)
+- "MI9: An Integrated Runtime Governance Framework for Agentic AI." arXiv:2508.03858 (2025). [arXiv:2508.03858](https://arxiv.org/abs/2508.03858)
+- "AgentSentinel: An End-to-End and Real-Time Security Defense Framework for Computer-Use Agents." arXiv:2509.07764 (2025). [arXiv:2509.07764](https://arxiv.org/abs/2509.07764)
+- Zhang et al. "Pro2Guard: Proactive Runtime Enforcement of LLM Agent Safety via Probabilistic Model Checking." arXiv:2508.00500 (2025). [arXiv:2508.00500](https://arxiv.org/abs/2508.00500)
+- Chen et al. "MCP-Guard: A Multi-Stage Defense-in-Depth Framework for Securing Model Context Protocol in Agentic AI." arXiv:2508.10991 (2025). [arXiv:2508.10991](https://arxiv.org/abs/2508.10991)
+- "Securing AI Agent Execution." arXiv:2510.21236 (2025). [arXiv](https://arxiv.org/abs/2510.21236)
 
 ### Formal Verification and Provable Safety
 
-- Xu et al. "ShieldAgent: Shielding Agents via Verifiable Safety Policy Reasoning." arXiv:2503.22738 (2025). https://arxiv.org/abs/2503.22738
-- Li et al. "VET Your Agent: Towards Host-Independent Autonomy via Verifiable Execution Traces." arXiv:2512.15892 (2025). https://arxiv.org/abs/2512.15892
-- Adharsh Kamath, Sishen Zhang, Calvin Xu, Shubham Ugare, Gagandeep Singh, Sasa Misailovic. "Enforcing Temporal Constraints for LLM Agents (Agent-C)." arXiv:2512.23738 (2025). https://arxiv.org/abs/2512.23738
-- Roham Koohestani. "AgentGuard: Runtime Verification of AI Agents." arXiv:2509.23864 (2025). https://arxiv.org/abs/2509.23864
+- Xu et al. "ShieldAgent: Shielding Agents via Verifiable Safety Policy Reasoning." arXiv:2503.22738 (2025). [arXiv:2503.22738](https://arxiv.org/abs/2503.22738)
+- Li et al. "VET Your Agent: Towards Host-Independent Autonomy via Verifiable Execution Traces." arXiv:2512.15892 (2025). [arXiv:2512.15892](https://arxiv.org/abs/2512.15892)
+- Adharsh Kamath, Sishen Zhang, Calvin Xu, Shubham Ugare, Gagandeep Singh, Sasa Misailovic. "Enforcing Temporal Constraints for LLM Agents (Agent-C)." arXiv:2512.23738 (2025). [arXiv:2512.23738](https://arxiv.org/abs/2512.23738)
+- Roham Koohestani. "AgentGuard: Runtime Verification of AI Agents." arXiv:2509.23864 (2025). [arXiv:2509.23864](https://arxiv.org/abs/2509.23864)
 
 ### Chain-of-Thought Monitoring
 
-- Rogers et al. "Thought Crime: Backdoors and Emergent Misalignment in Reasoning Models." arXiv:2506.13206 (2025). https://arxiv.org/abs/2506.13206
-- Baker et al. "Chain of Thought Monitorability: A New and Fragile Opportunity for AI Safety." arXiv:2507.11473 (2025). https://arxiv.org/abs/2507.11473
-- "When Chain of Thought is Necessary, Language Models Struggle to Evade Monitors." arXiv:2507.05246 (2025). https://arxiv.org/abs/2507.05246
-- Goldowsky-Dill et al. "CoT Red-Handed: Stress Testing Chain-of-Thought Monitoring." arXiv:2505.23575 (2025). https://arxiv.org/abs/2505.23575
+- Rogers et al. "Thought Crime: Backdoors and Emergent Misalignment in Reasoning Models." arXiv:2506.13206 (2025). [arXiv:2506.13206](https://arxiv.org/abs/2506.13206)
+- Baker et al. "Chain of Thought Monitorability: A New and Fragile Opportunity for AI Safety." arXiv:2507.11473 (2025). [arXiv:2507.11473](https://arxiv.org/abs/2507.11473)
+- "When Chain of Thought is Necessary, Language Models Struggle to Evade Monitors." arXiv:2507.05246 (2025). [arXiv:2507.05246](https://arxiv.org/abs/2507.05246)
+- Goldowsky-Dill et al. "CoT Red-Handed: Stress Testing Chain-of-Thought Monitoring." arXiv:2505.23575 (2025). [arXiv:2505.23575](https://arxiv.org/abs/2505.23575)
 
 ### Agent Orchestration Frameworks
 
-- LangChain / LangGraph. "LangGraph: Build stateful, multi-actor applications with LLMs." (2024). https://langchain-ai.github.io/langgraph/
-- Joao Moura. "CrewAI: Framework for orchestrating role-playing, autonomous AI agents." (2024). https://github.com/crewAIInc/crewAI
-- Qingyun Wu, Gagan Bansal, Jieyu Zhang, Yiran Wu, Beibin Li, Erkang Zhu, Li Jiang, Xiaoyun Zhang, Chi Wang. "AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation." arXiv:2308.08155 (2023). https://arxiv.org/abs/2308.08155
+- LangChain / LangGraph. "LangGraph: Build stateful, multi-actor applications with LLMs." (2024). [docs](https://langchain-ai.github.io/langgraph/)
+- Joao Moura. "CrewAI: Framework for orchestrating role-playing, autonomous AI agents." (2024). [repo](https://github.com/crewAIInc/crewAI)
+- Qingyun Wu, Gagan Bansal, Jieyu Zhang, Yiran Wu, Beibin Li, Erkang Zhu, Li Jiang, Xiaoyun Zhang, Chi Wang. "AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation." arXiv:2308.08155 (2023). [arXiv:2308.08155](https://arxiv.org/abs/2308.08155)
 
 ### Standards and Specifications
 
-- Edwin B. Wilson. "Probable Inference, the Law of Succession, and Statistical Inference." JASA (1927). [tandfonline.com/doi/10.1080/01621459.1927.10502953](https://www.tandfonline.com/doi/abs/10.1080/01621459.1927.10502953)
+- Edwin B. Wilson. "Probable Inference, the Law of Succession, and Statistical Inference." JASA (1927). [publisher page](https://www.tandfonline.com/doi/abs/10.1080/01621459.1927.10502953)
 - J. Sobel, D. Friedman. "An Introduction to Reflection-Oriented Programming." (1996).
-- Model Context Protocol (MCP) Security Best Practices (rev 2025-06-18): [modelcontextprotocol.io/.../security\_best\_practices](https://modelcontextprotocol.io/specification/2025-06-18/basic/security_best_practices)
-- Model Context Protocol (MCP) Authorization (rev 2025-06-18): [modelcontextprotocol.io/.../authorization](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization)
+- Model Context Protocol (MCP) Security Best Practices (rev 2025-06-18): [spec](https://modelcontextprotocol.io/specification/2025-06-18/basic/security_best_practices)
+- Model Context Protocol (MCP) Authorization (rev 2025-06-18): [spec](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization)
+- Inspektor Gadget. "ig-mcp-server: MCP server for eBPF-powered observability." (2026). [repo](https://github.com/inspektor-gadget/ig-mcp-server)
+- AKS Engineering Blog. "Observe Smarter: Leveraging Real-Time Insights via the AKS-MCP Server." (2025). [article](https://blog.aks.azure.com/2025/08/20/real-time-observability-in-aks-mcp-server)
 
 ### Incident Sources
 
-- EDAMAME Posture (software): [github.com/edamametechnologies/edamame\_posture](https://github.com/edamametechnologies/edamame_posture)
-- OpenClaw security advisories: [github.com/openclaw/openclaw/security/advisories](https://github.com/openclaw/openclaw/security/advisories)
-- OpenClaw issue #9627 (config secret sprawl): [github.com/openclaw/openclaw/issues/9627](https://github.com/openclaw/openclaw/issues/9627)
+- EDAMAME Posture (software): [repo](https://github.com/edamametechnologies/edamame_posture)
+- OpenClaw security advisories: [advisories](https://github.com/openclaw/openclaw/security/advisories)
+- OpenClaw issue #9627 (config secret sprawl): [issue](https://github.com/openclaw/openclaw/issues/9627)
 - CVE-2026-25253 (NVD): [nvd.nist.gov/vuln/detail/CVE-2026-25253](https://nvd.nist.gov/vuln/detail/CVE-2026-25253)
 - CVE-2026-24763 (OpenCVE): [app.opencve.io/cve/CVE-2026-24763](https://app.opencve.io/cve/CVE-2026-24763)
-- SecurityScorecard STRIKE exposure research (Moltbots): [securityscorecard.com/blog/...](https://securityscorecard.com/blog/beyond-the-hype-moltbots-real-risk-is-exposed-infrastructure-not-ai-superintelligence/)
+- SecurityScorecard STRIKE exposure research (Moltbots): [article](https://securityscorecard.com/blog/beyond-the-hype-moltbots-real-risk-is-exposed-infrastructure-not-ai-superintelligence/)
 - declawed.io exposed instances dashboard: [declawed.io](https://declawed.io/)
-- VirusTotal on weaponized agent skills (ClawHub): [blog.virustotal.com/2026/02/...](https://blog.virustotal.com/2026/02/from-automation-to-infection-how.html)
-- Palo Alto Networks Unit 42 (memory poisoning): [unit42.paloaltonetworks.com/...](https://unit42.paloaltonetworks.com/indirect-prompt-injection-poisons-ai-longterm-memory/)
+- VirusTotal on weaponized agent skills (ClawHub): [article](https://blog.virustotal.com/2026/02/from-automation-to-infection-how.html)
+- Palo Alto Networks Unit 42 (memory poisoning): [article](https://unit42.paloaltonetworks.com/indirect-prompt-injection-poisons-ai-longterm-memory/)

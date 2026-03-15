@@ -1,20 +1,20 @@
 {
-  "generated_at_utc": "2026-03-05T07:54:12Z",
-  "verdict": "NO_GO",
+  "generated_at_utc": "2026-03-14T17:48:27Z",
+  "verdict": "GO",
   "evidence_source": {
     "mode": "live",
     "benchmark_mode": "live",
-    "total_runs": 273,
-    "precision": 0.8620689655172413,
-    "recall": 0.9868421052631579,
-    "seeds": 12,
-    "skipped_ratio": 0.3865168539325843,
-    "scenario_coverage_ratio": 0.86,
-    "group_coverage_ratio": 0.8333333333333334,
+    "total_runs": 468,
+    "precision": 1,
+    "recall": 0.9109195402298851,
+    "seeds": 10,
+    "skipped_ratio": 0.064,
+    "scenario_coverage_ratio": 0.94,
+    "group_coverage_ratio": 0.9,
     "category_count": 8,
     "unknown_benchmark_rows": 0,
-    "manifest_valid_runs": 273,
-    "git_sha": "473465c"
+    "manifest_valid_runs": 468,
+    "git_sha": "aca9156"
   },
   "criteria": [
     {
@@ -30,8 +30,8 @@
       "description": "Manifest includes git SHA and scenario-set hash",
       "passed": true,
       "observed": {
-        "git_sha": "473465c",
-        "scenario_set_version": "22cb4a6cbddf88154435207c279143f7245de94dbc47c5803ca349eb10f3de1d"
+        "git_sha": "aca9156",
+        "scenario_set_version": "fa1266a7eb7b2645ecad1b31258ea661710f47bd1cba01ffef5817536a04b4aa"
       },
       "threshold": "git_sha != unknown AND scenario_set_version != unknown",
       "severity": "high"
@@ -57,8 +57,8 @@
       "description": "Summary total_runs matches manifest valid_runs",
       "passed": true,
       "observed": {
-        "summary_total_runs": 273,
-        "manifest_valid_runs": 273
+        "summary_total_runs": 468,
+        "manifest_valid_runs": 468
       },
       "threshold": "summary.total_runs == manifest.counts.valid_runs",
       "severity": "high"
@@ -67,15 +67,15 @@
       "id": "sample_size",
       "description": "At least 100 total measured runs",
       "passed": true,
-      "observed": 273,
+      "observed": 468,
       "threshold": ">= 100",
       "severity": "high"
     },
     {
       "id": "precision_lower_bound",
       "description": "Precision CI95 lower bound >= 0.85",
-      "passed": false,
-      "observed": 0.8149560047336936,
+      "passed": true,
+      "observed": 0.988026490330431,
       "threshold": ">= 0.85",
       "severity": "high"
     },
@@ -83,7 +83,7 @@
       "id": "recall_lower_bound",
       "description": "Recall CI95 lower bound >= 0.85",
       "passed": true,
-      "observed": 0.9620350252457207,
+      "observed": 0.8763311151407897,
       "threshold": ">= 0.85",
       "severity": "high"
     },
@@ -91,18 +91,18 @@
       "id": "seed_coverage",
       "description": "At least 10 distinct seeds",
       "passed": true,
-      "observed": 12,
+      "observed": 10,
       "threshold": ">= 10",
       "severity": "medium"
     },
     {
       "id": "skip_ratio",
       "description": "Skipped-run ratio <= 15%",
-      "passed": false,
+      "passed": true,
       "observed": {
-        "skipped_runs": 172,
-        "planned_runs": 445,
-        "skipped_ratio": 0.3865168539325843
+        "skipped_runs": 32,
+        "planned_runs": 500,
+        "skipped_ratio": 0.064
       },
       "threshold": "<= 0.15",
       "severity": "high"
@@ -112,9 +112,9 @@
       "description": "Scenario coverage ratio >= 80%",
       "passed": true,
       "observed": {
-        "covered_scenarios": 43,
+        "covered_scenarios": 47,
         "scenario_count": 50,
-        "coverage_ratio": 0.86
+        "coverage_ratio": 0.94
       },
       "threshold": ">= 0.80",
       "severity": "high"
@@ -124,9 +124,9 @@
       "description": "Scenario-group coverage ratio >= 70%",
       "passed": true,
       "observed": {
-        "covered_groups": 25,
+        "covered_groups": 27,
         "group_count": 30,
-        "coverage_ratio": 0.8333333333333334
+        "coverage_ratio": 0.9
       },
       "threshold": ">= 0.70",
       "severity": "medium"
@@ -143,15 +143,15 @@
       "id": "stability_recall_stddev",
       "description": "Recall stddev across seeds <= 0.15",
       "passed": true,
-      "observed": 0.07229988054812211,
+      "observed": 0.009001831155373185,
       "threshold": "<= 0.15",
       "severity": "high"
     }
   ],
   "stats": {
     "total": 14,
-    "passed": 12,
-    "failed": 2,
-    "failed_high": 2
+    "passed": 14,
+    "failed": 0,
+    "failed_high": 0
   }
 }

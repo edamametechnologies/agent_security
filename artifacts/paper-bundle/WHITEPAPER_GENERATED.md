@@ -4,7 +4,7 @@
 
 Authors: Frank Lyonnet, Antoine Clerget  
 Status: arXiv draft (not submitted)  
-Version: 2026-03-02  
+Version: 2026-03-13  
 
 ## Abstract
 
@@ -15,34 +15,30 @@ tool poisoning). We present a two-plane security model that correlates
 reasoning-plane observations (independently read session transcripts) with
 system-plane telemetry to detect intent-behavior divergence.
 
-The contribution is architectural: process-attributed telemetry, task-scoped
-intent declarations, and a confidence-stratified signal hierarchy form a
-portable control loop across MCP-compatible stacks. In the reference
-implementation, EDAMAME accepts agent-tagged behavioral-model slices from
-multiple reasoning-plane producers, including OpenClaw and Cursor, merges them
-into one observer-owned correlation window, and preserves contributor
-attribution. To demonstrate feasibility and relevance, the live benchmark in
-this draft uses an OpenClaw-derived scenario corpus and the explicit-slice
-producer path (`upsert_behavioral_model`) to exercise EDAMAME's downstream
-correlation logic, while the same EDAMAME control loop also supports raw-session
-ingest (`upsert_behavioral_model_from_raw_sessions`) for Cursor on a developer
-workstation.
+The contribution is architectural rather than a claim of universal prevention.
+EDAMAME accepts agent-tagged behavioral-model slices from multiple
+reasoning-plane producers, merges them into one observer-owned correlation
+window, and evaluates those slices against process-attributed host telemetry
+and model-independent guardrails. The same control loop supports explicit
+behavioral slices (`upsert_behavioral_model`) and raw-session ingest
+(`upsert_behavioral_model_from_raw_sessions`) for workstation paths such as
+Cursor.
 
-On the current canonical BadAgentUse artifact lineage (50 live scenarios across six
-benchmark categories, plus two integration-validated categories; 273 valid
-runs across 12 seeds), precision is
-0.862 (CI95: [0.815, 0.899]) and recall is 0.987 (CI95: [0.962, 0.996]). Median
-detection latency is 45.8 s (p95: 53.6 s): fast enough to support many
-operator responses, but still a meaningful pre-alert window and therefore the
-primary limitation of a reactive design. These aggregate metrics are
-cross-checked by layered model-to-verdict validation of the core engine and a
-focused live validation ladder spanning clean, unexpected-egress, `/tmp`
-lineage, and designed-miss behavior. We explicitly mark designed
-blind spots: living-off-the-land behavior under allowed process/destination
-pairs and timing-window evasion before telemetry arrives. This frames the model
-as a practical correlation architecture with an explicit latency trade-off
-versus interception-first systems such as AgentSentinel, while still providing
-a portable and trace-auditable runtime detection path.
+The quantitative result in this draft is narrower than a full end-to-end agent
+evaluation. BadAgentUse uses explicit behavioral-model slice injection to
+exercise EDAMAME's downstream correlation loop under accelerated benchmark
+cadence, while end-to-end transcript-publication paths are validated
+separately. On the current reproducible branch snapshot (468 valid runs across
+10 seeds, with skipped runs tracked separately in the readiness scorecard),
+precision is 1.000 (CI95: [0.988, 1.000]) and recall is 0.911 (CI95: [0.876,
+0.937]). Median detection latency is 51.6 s (p95: 66.9 s). These trace-backed
+results support the feasibility of the correlation loop as an early-warning
+mechanism, while keeping three limitations explicit: reactive latency,
+residual adversarial-evasion misses dominated by explicitly versioned
+`DESIGNED_MISS` living-off-the-land scenarios that remain in the recall
+denominator, plus one remaining non-designed miss in
+network-intent-correlation, and living-off-the-land behavior that stays within
+allowed process/destination pairs.
 
 ## Keywords
 
@@ -101,6 +97,12 @@ By design, this first-generation rule set has a blind spot for living-off-the-la
 behavior when both process and destination are already authorized; we surface
 that limitation explicitly in Sections 7 and 9.
 
+Throughout the paper, we distinguish between what is implemented in the
+reference runtime, what is validated by integration tests, and what is
+measured in the current quantitative snapshot. That distinction matters because
+the current benchmark isolates the downstream correlation loop rather than the
+full transcript-to-model publication path.
+
 ### 1.1 Contributions (Novelty)
 
 We separate contributions into a model part and an implementation/evaluation
@@ -108,31 +110,28 @@ part.
 
 **Model contributions (Part I):**
 
-- **Two-plane runtime security model.** A portable control loop for correlating
-  observed agent behavior (reasoning plane, via session transcript observation) with
-  independent host telemetry (system plane).
-- **Model-level requirements.** Process-attributed telemetry and a signal
-  hierarchy are presented as requirements of the model, not as product-specific
-  implementation details.
-- **MCP-native framing and portability.** We argue that MCP is not only an
-  integration transport but a key enabler of framework-agnostic runtime
-  verification.
+- **Two-plane runtime correlation model.** A control loop for correlating
+  observed agent behavior (reasoning plane, via session transcript observation)
+  with independent host telemetry (system plane).
+- **Model-level requirements.** Process-attributed telemetry, observer-owned
+  state, and a signal hierarchy are presented as requirements of the model,
+  not as product-specific implementation details.
+- **MCP-aware security framing.** We use MCP as a typed boundary between
+  reasoning-plane publishers and an external security observer, not only as a
+  transport convenience.
 
 **Implementation and evaluation contributions (Part II):**
 
-- **OpenClaw + Cursor-capable EDAMAME instantiation.** A concrete deployment
-  path over local, PSK-authenticated MCP with rollback-capable action handling
-  and merged multi-agent reasoning-plane inputs. The quantitative benchmark in
-  this draft uses OpenClaw-derived scenarios with explicit prebuilt-window
-  behavioral-model slices published into EDAMAME, while Cursor is integrated
-  through the raw-session observer contract rather than treated as a separate
-  detection engine.
+- **EDAMAME instantiation with two producer modes.** A concrete deployment path
+  over local, PSK-authenticated MCP with rollback-capable action handling and
+  merged multi-agent reasoning-plane inputs. The same runtime accepts explicit
+  prebuilt behavioral windows and raw-session inputs converted inside EDAMAME.
 - **Trace-backed benchmark protocol.** Every verdict is tied to on-disk
   telemetry artifacts for auditability.
-- **Empirical performance characterization.** Precision/recall, latency, and
-  failure modes are measured on a live 50-scenario suite, including explicit
-  designed-miss scenarios, and cross-checked with layered model-to-verdict
-  validation.
+- **Current empirical snapshot of the downstream correlation loop.** The
+  quantitative section measures explicit-slice benchmark mode on a live
+  50-scenario suite, including explicit designed-miss scenarios, while keeping
+  end-to-end producer validation separate.
 
 ## Part I — Two-Plane Model
 
@@ -234,26 +233,28 @@ of thought, tool call sequences) to detect compromise:
 
 ### 2.3 Positioning
 
-Table 2 summarizes the landscape. Our system provides MCP-native,
-multiplatform process-attributed telemetry integrated with intent correlation.
-The closest comparator is AgentSentinel, which also correlates task context
-with OS-level traces via eBPF/LSM. Key differentiators:
+Table 2 summarizes the landscape. Our system combines MCP-native deployment,
+multiplatform process-attributed telemetry, and intent correlation. The
+closest comparator is AgentSentinel, which also correlates task context with
+OS-level traces via eBPF/LSM. Key differentiators:
 
-- **Multiplatform**: our observer (EDAMAME Posture) works across Linux, macOS,
-  and Windows (Section 4.3), while AgentSentinel requires Linux eBPF/LSM.
-  eBPF enhances attribution resolution on Linux but is not required.
-- **MCP-native**: telemetry is exposed as standard MCP tools over Streamable
-  HTTP with PSK authentication, usable by any MCP-compatible agent without
-  custom integration.
+- **Multiplatform observer**: our observer (EDAMAME Posture) works across
+  Linux, macOS, and Windows (Section 4.3), while AgentSentinel requires Linux
+  eBPF/LSM. eBPF enhances attribution resolution on Linux but is not required.
+- **MCP-native deployment surface**: telemetry is exposed as standard MCP
+  tools over Streamable HTTP with PSK authentication, usable by any
+  MCP-compatible agent without custom integration.
+- **Observer-owned merge semantics**: EDAMAME merges multiple agent-tagged
+  contributor slices centrally, so no single reasoning-plane producer owns the
+  correlation window or verdict history.
 - **Correlation vs. interception**: AgentSentinel halts execution at sensitive
   operations for synchronous audit; our system primarily correlates observed
   behavior after it appears in telemetry, with an optional proactive layer for
   MCP-gated actions. This trades immediate blocking for lower runtime friction
   and broader platform compatibility.
-- **Latency trade-off (explicit).** Our measured 45.8 s median detection delay (p95: 53.6 s)
-  is a practical limitation of reactive observation; AgentSentinel reduces this
-  gap for intercepted operations but at the cost of inline interception and
-  Linux/eBPF coupling.
+- **Measurement scope (explicit).** The 51.6 s median detection delay reported
+  in this draft comes from the current accelerated branch snapshot, not from a
+  steady-state production default cadence.
 
 Its primary limitations relative to the field are partial reasoning-plane
 coverage (transcript-only, no CoT introspection; Section 9) and absence of
@@ -261,9 +262,9 @@ formal safety proofs.
 
 \begingroup\small
 \begin{center}
-\setlength{\tabcolsep}{4pt}
+\setlength{\tabcolsep}{2pt}
 \renewcommand{\arraystretch}{1.04}
-\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.18\linewidth}>{\raggedright\arraybackslash}p{0.14\linewidth}>{\raggedright\arraybackslash}p{0.08\linewidth}>{\raggedright\arraybackslash}p{0.18\linewidth}>{\raggedright\arraybackslash}p{0.30\linewidth}@{}}
+\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.17\linewidth}>{\raggedright\arraybackslash}p{0.14\linewidth}>{\raggedright\arraybackslash}p{0.08\linewidth}>{\raggedright\arraybackslash}p{0.17\linewidth}>{\raggedright\arraybackslash}p{0.32\linewidth}@{}}
 \toprule
 System & Plane & MCP & Platforms & Eval. Scale \\
 \midrule
@@ -278,13 +279,13 @@ ShieldAgent & Formal & No & Any & Web environments \\
 Agent-C & Formal & No & Any & Multiple bench. \\
 VET & Trace & No & Any & Black-box API \\
 MCP-Guard & Metadata & Yes & Any & 70,448 samples \\
-\textbf{This work} & \textbf{Hybrid} & \textbf{Yes} & \textbf{Lin/Mac/Win} & \textbf{50 scen., 8 cat.} \\
+\textbf{This work} & Hybrid & Yes & Lin/Mac/Win & 50 + 2 integ. \\
 \bottomrule
 \end{tabular}
 \end{center}
 \endgroup
 
-\begingroup\footnotesize\noindent A2AS BASIC is conceptual at the MCP-native layer. \texttt{This work} is hybrid because reasoning-plane sessions and system-plane telemetry are observed independently and merged only inside the observer-owned runtime.\par\endgroup
+\begingroup\footnotesize\noindent A2AS BASIC is conceptual at the MCP-native layer. \texttt{This work} is hybrid because reasoning-plane sessions and system-plane telemetry are observed independently and merged only inside the observer-owned runtime. In this table, \texttt{50 scen. + 2 integ.} means 50 benchmark scenarios across six benchmark categories plus two integration-only signal families (posture and LAN) that are validated outside the confusion matrix.\par\endgroup
 
 Formal properties reported by prior systems:
 - A2AS (behavioral certificates)
@@ -298,20 +299,21 @@ Formal properties reported by prior systems:
 Deployed systems in this survey scope:
 - LlamaFirewall (Meta production)
 - A2AS (emerging standard)
-- This work (Lima VM)
+- This work (research deployment in Lima VM)
 - All others are currently research-only artifacts.
 
-![Agent runtime security timeline](figures/fig6_timeline.svg)
+![Agent Runtime Security Timeline](figures/fig6_timeline.svg){ width=100% }
 
-No prior published defense, to our knowledge, exposes continual,
-process-attributed OS-level telemetry (eBPF sessions, parent process lineage,
-open file paths) as MCP tools and then demonstrates intent-telemetry
-correlation through that same interface.[^mcp-novelty-survey] Close neighbors
-(AgentSentinel, LlamaFirewall, MCP-Guard) intercept or audit tool calls but do
-not expose OS-level telemetry as a first-class MCP self-inspection surface.
-The trade-off is that system-plane monitoring is inherently reactive
-(Section 3.6) and reasoning-plane coverage is transcript-only, without
-CoT introspection (Section 9).
+We do not claim to be the first system to expose OS- or eBPF-derived telemetry
+through MCP for analysis. Public observability projects such as the Inspektor
+Gadget MCP Server and AKS-MCP observability tooling already show that
+telemetry-via-MCP is practical. Our narrower claim is that this work uses
+MCP-exposed host telemetry to produce security intent-behavior divergence
+verdicts for agent runtimes under an observer-owned merge contract, and that
+the current draft evaluates that correlation loop on trace-backed scenarios.[^mcp-novelty-survey]
+The trade-off is that system-plane monitoring remains reactive (Section 3.6)
+and reasoning-plane coverage remains transcript-only, without CoT
+introspection (Section 9).
 
 ### 2.4 Reflection as Relevant Prior Art
 
@@ -341,10 +343,11 @@ declare intent ->
     observe host behavior ->  
       correlate ->  
         compute deterministic evidence ->  
-          apply LLM adjudication with critical-signal guardrails ->  
-            emit final divergence verdict
+          optionally adjudicate soft signals with an LLM ->  
+            reconcile critical-signal guardrails ->  
+              emit final divergence verdict
 
-![Two-plane architecture with reasoning-plane declarations and system-plane runtime loops.](figures/fig1_architecture.svg)
+![Two-Plane Architecture with Reasoning-Plane Declarations and System-Plane Runtime Loops](figures/fig1_architecture.svg){ width=100% }
 
 The architecture maps reasoning-plane intent declarations to system-plane
 telemetry correlation, and emits divergence when observed behavior is not
@@ -356,16 +359,26 @@ prebuilt-window publication path, while workstation integrations such as Cursor
 can forward raw reasoning sessions so EDAMAME generates the contributor slice
 internally before merge.
 
-The operational cadence is shared-timer-driven: extrapolator and divergence
-verdict-reader jobs run on offset timers, while EDAMAME evaluates three
-adjacent runtime loops internally. The timer structure is important to
-portability: it avoids dependence on framework-specific synchronous hooks and
-keeps behavior consistent across deployments. We considered two alternatives --
+The operational cadence is shared-timer-driven: the extrapolator cron
+publishes behavioral models on a fixed interval, while EDAMAME evaluates three
+adjacent runtime loops internally and handles divergence alerting through its
+own notification subsystem. The timer structure is important to portability: it
+avoids dependence on framework-specific synchronous hooks and keeps behavior
+consistent across deployments. We considered two alternatives --
 interception-first synchronous gating (lower delay but higher runtime friction
 and tighter platform coupling) and a single merged polling loop (simpler but
-weaker separation between model publication and verdict consumption). The
-shared-timer split gave the best operator clarity while preserving
-framework-agnostic deployment.
+weaker separation between model publication and engine evaluation). The
+timer-plus-internal-notification design gave the best operator clarity while
+preserving framework-agnostic deployment.
+
+Cadence is an implementation parameter, not a model contribution. In the
+current reference runtime, production defaults use 300 s divergence and
+vulnerability intervals plus a `*/5` extrapolator cron cadence.
+Executive demo scripts accelerate the internal loops to 60 s and the
+extrapolator cron to `*/2`, while the explicit-slice benchmark helper can
+accelerate the engine further because it injects the behavioral slice directly
+before polling for verdicts. This separation is what reconciles the production default timer
+story with the sub-minute latency numbers reported in Section 7.
 
 The paper's model claim remains two-plane correlation. The three-loop split is
 an implementation decomposition of the system plane in the reference
@@ -386,12 +399,13 @@ This separation is deliberate: telemetry confidence labels such as
 `anomalous` or `blacklisted` are useful operational signals, but they are not
 treated as intent-relative divergence evidence by themselves. Scenarios are
 judged from engine verdicts read via `get_divergence_verdict`; the final
-operator verdict may be LLM-adjudicated, but deterministic safety-floor and
-vulnerability-loop findings remain non-downgradable.
+operator verdict may include optional LLM adjudication for soft-signal cases,
+but deterministic safety-floor and vulnerability-loop findings remain
+non-downgradable.
 
-![Shared-timer cadence for extrapolator publication, internal runtime loops, and verdict consumption.](figures/fig8_cron_sequence.svg)
+![Shared-Timer Cadence for Extrapolator Publication, Runtime Loops, and Verdict Consumption](figures/fig8_cron_sequence.svg){ width=100% }
 
-![Reference runtime decomposition of the three adjacent loops inside the system plane.](figures/fig9_divergence_engine.svg)
+![Reference Runtime Decomposition of the Three Adjacent System-Plane Loops](figures/fig9_divergence_engine.svg){ width=100% }
 
 ### 3.1 Reasoning-Plane Inputs
 
@@ -432,7 +446,7 @@ These telemetry labels are organized as a strict confidence hierarchy:
 sessions -> exceptions -> anomalous -> blacklisted
 ```
 
-![Signal hierarchy with escalating detection confidence](figures/fig7_signal_hierarchy.svg)
+![Signal Hierarchy with Escalating Detection Confidence](figures/fig7_signal_hierarchy.svg){ width=92% }
 
 The hierarchy is part of the model as a system-plane evidence-prioritization
 mechanism, not merely an EDAMAME implementation detail: it separates "did
@@ -460,7 +474,7 @@ The two-plane model requires process attribution to remain meaningful:
 This requirement is independent of implementation. Any observer that cannot
 attribute connections to concrete processes cannot fully realize the model.
 
-![Layer-7 Session Enrichment Schema.](figures/fig3_l7_schema.svg)
+![Layer-7 Session Enrichment Schema](figures/fig3_l7_schema.svg){ width=100% }
 
 Each session record is enriched with process identity, parent lineage, security
 signals (including `open_files` and `spawned_from_tmp`), and resource metrics.
@@ -498,13 +512,16 @@ Our current implementation uses:
 - native macOS/Windows process APIs
 - a socket-matching fallback when kernel telemetry is unavailable
 
-![Multiplatform Process Attribution: Linux uses eBPF kprobes for real-time attribution, macOS uses proc\_pidinfo, and Windows uses NtQuerySystemInformation. All platforms share a universal fallback via netstat2 socket matching with port cache.](figures/fig2_multiplatform.svg)
+![Multiplatform Process Attribution Across Linux, macOS, and Windows](figures/fig2_multiplatform.svg){ width=96% }
 
 ### 3.6 Observation Delay Is a Constraint, Not a Contribution
 
 Telemetry is delayed relative to action execution. We therefore use a settling
 schedule (e.g., 15 s -> 30 s -> 60 s) and stop when snapshots stabilize.
-This is an operational accommodation, not a conceptual novelty claim.
+This is an operational accommodation, not a conceptual novelty claim. In
+production, that delay sits on top of the configured engine interval; demos
+and explicit-slice benchmarks shorten that interval, but they do not remove
+the underlying enrichment delay.
 
 ### 3.7 Two Example Rules (Simple and Realistic)
 
@@ -561,11 +578,13 @@ at runtime.
 Rule B does not replace Rule A: actions bypassing MCP still require reactive
 system-plane correlation.
 
-![Detection Decision Flow (Example Rule A).](figures/fig4_decision_flow.svg)
+![Benchmark-Mode Decision Flow and Guardrail Reconciliation](figures/fig4_decision_flow.svg){ width=100% }
 
-In this flow, sessions are checked against blacklists, vulnerability-detection
-checks, and intent-conditioned allowlists within a settling-window loop.
-Divergence is raised at the first failing check.
+In this flow, the reference implementation checks blacklists,
+vulnerability-detection findings, and intent-conditioned allowlists within a
+settling-window loop. In explicit-slice benchmark mode, the behavioral model
+is injected immediately before this flow runs, so the figure describes the
+downstream correlation engine rather than the full end-to-end producer path.
 
 Model-level multi-signal scenarios (network + identity + LAN + posture) are
 provided in Appendix A to keep the main narrative focused.
@@ -802,7 +821,7 @@ do not provide:
 Systems that require these stronger properties should consider Pro2Guard
 (PAC bounds), Agent-C (temporal SMT), or VET (cryptographic attestation).
 
-Part I takeaway: the model provides a portable and auditable way to correlate
+Part I takeaway: the model provides an auditable way to correlate
 declared intent with host-observed behavior, but by itself it does not provide
 zero-latency interception, complete living-off-the-land coverage, or formal
 safety proofs. Part II therefore focuses on implementation feasibility and
@@ -817,48 +836,64 @@ Section 10 discusses ethics and safe use.
 
 ## 6. Implementation (OpenClaw + EDAMAME Posture)
 
-Our implementation uses a shared-timer architecture with one OpenClaw reasoning
-skill, EDAMAME-internal detection/remediation loops, and an internal EDAMAME
-divergence engine:
+Our reference implementation combines one OpenClaw reasoning skill with
+EDAMAME-internal runtime loops. We distinguish the architecture itself from
+the benchmark mode used later in Section 7.
 
-**Two-Plane Detection (cooperating timer jobs):**
+**Reasoning-plane publication:**
 
 - `skill/edamame-extrapolator/` -- Reads raw session history via
-  `sessions_list(activeMinutes=15)` and `sessions_history`, distills a compact
-  behavioral model, and publishes it via `upsert_behavioral_model`. Runs every
-  2-5 minutes. Uses per-session `message_count` checkpoints to implement a
-  sliding window and avoid re-analysis.
-- **Internal divergence engine** (inside EDAMAME Posture) -- Implements a
-  hybrid Rust-deterministic + LLM-adjudication architecture. Runs every
-  ~5 minutes by default (configurable). Each tick proceeds in three stages:
+  `sessions_list` and `sessions_history`, distills a compact behavioral model,
+  and publishes it via the behavioral-model upsert API. Production cadence is
+  `*/5`; tests and demos accelerate this to `*/2`.
+- Workstation integrations such as Cursor can forward raw reasoning sessions
+  through the raw-session publication API, allowing EDAMAME to generate the
+  contributor slice internally before merge.
+
+**System-plane evaluation inside EDAMAME:**
+
+- **Internal divergence engine** (inside EDAMAME Posture) -- Performs the
+  downstream correlation loop. The production default interval is 300 s, but
+  the CLI can shorten it; executive demos use 60 s and the explicit-slice
+  benchmark helper can drive it faster because it bypasses producer cadence.
+  Each cycle proceeds in three stages:
   1. **Deterministic evidence stage** (Rust, `divergence_engine.rs`): Stateless
      pure functions correlate behavioral model predictions against live telemetry
-    (sessions, anomalous, blacklisted, exceptions) and run CVE-inspired
-    vulnerability-detection checks (gateway binding via `ourselves.open_ports`, token
-     exfiltration, skill supply chain, sandbox exploitation). Produces a baseline
-     `DivergenceVerdict` with typed evidence (CRITICAL/HIGH/MEDIUM severity).
-  2. **LLM adjudication stage**: The deterministic evidence bundle is submitted
-     to the configured LLM provider for final verdict decision and operator-facing
-     alert synthesis. The LLM receives the full evidence context and returns a
-     structured `LlmDivergenceDecision` (verdict, confidence, reasoning) plus an
-     optional `LlmHumanAlert` (title, body, severity).
-3. **Guardrail reconciliation** (`reconcile_with_guardrails`): Critical signals
-   -- vulnerability-detection findings and blacklisted-traffic evidence -- are
-     non-downgradable. If the LLM attempts to override a CRITICAL deterministic
-     finding, the guardrail forces DIVERGENCE with provenance
-     `GUARDRAIL_FORCED_DETERMINISTIC`. Otherwise, the LLM verdict is accepted
-     with provenance `LLM_CONFIRMED` or `LLM_OVERRULED_SOFT_SIGNALS`.
-  Each verdict records full provenance: `deterministic_verdict`, `decision_source`,
-  optional `llm_decision`, and optional `human_alert`. If the behavioral model is
-  stale (>20 min), produces a STALE verdict. Verdicts are accessible via
-  `get_divergence_verdict` MCP tool.
-
-**Posture Management (EDAMAME-internal loop):**
-
-- EDAMAME posture/remediation loop (internal) -- Reviews advisor todos and
+     (sessions, anomalous, blacklisted, exceptions) and typed contextual state.
+     The same local stage also accumulates intent-relative evidence for the
+     final verdict path.
+  2. **Optional LLM adjudication stage**: The deterministic evidence bundle can
+     be submitted to the configured provider for soft-signal classification and
+     operator-facing alert synthesis. The provider returns a structured
+     `LlmDivergenceDecision` plus an optional `LlmHumanAlert`.
+  3. **Guardrail reconciliation** (`reconcile_with_guardrails`): Critical
+     signals -- especially vulnerability-detection findings and
+     blacklisted-traffic evidence -- are non-downgradable. If the LLM attempts
+     to override a CRITICAL deterministic finding, the guardrail forces
+     DIVERGENCE with provenance `GUARDRAIL_FORCED_DETERMINISTIC`. Otherwise the
+     soft-signal verdict is accepted with provenance such as `LLM_CONFIRMED` or
+     `LLM_OVERRULED_SOFT_SIGNALS`.
+  The local deterministic stage always runs first. Optional LLM output can
+  influence soft-signal classification and operator wording, but it cannot
+  downgrade CRITICAL deterministic findings. If the behavioral model is stale
+  (>20 min), the engine produces a STALE verdict. Verdicts are accessible via
+  `get_divergence_verdict`.
+- **Internal vulnerability / safety-floor loop** -- Evaluates model-independent
+  runtime incident checks (for example gateway binding, token exfiltration,
+  skill supply chain, sandbox exploitation, `/tmp` lineage, and credential-file
+  plus egress combinations) against the same system-plane substrate.
+- **EDAMAME posture/remediation loop** (internal) -- Reviews advisor todos and
   executes safe fixes through the native agentic pipeline. In OpenClaw,
   `skill/edamame-posture/` acts as a thin MCP facade for invoking these
   capabilities; scheduled remediation ownership remains inside EDAMAME.
+
+**Benchmark interpretation for this draft:**
+
+- The aggregate metrics in Section 7 come from explicit-slice benchmark mode.
+  The harness derives a scenario-specific behavioral model and injects it with
+  `upsert_behavioral_model`, so the quantitative loop measures downstream
+  correlation behavior under accelerated cadence rather than transcript-to-model
+  extraction accuracy.
 
 **Supporting components:**
 
@@ -866,6 +901,9 @@ divergence engine:
 - Live benchmark harness: `tests/benchmark/run_live_suite.py`
 - Metric summarizer: `tests/benchmark/summarize_results.sh`
 - Canonical claim binding: `docs/CLAIM_ARTIFACT_INDEX.md`
+- Public paper source and generated publication bundle: [`agent_security`](https://github.com/edamametechnologies/agent_security)
+- OpenClaw workstation/package repository used for the OpenClaw path: [`edamame_openclaw`](https://github.com/edamametechnologies/edamame_openclaw)
+- Cursor workstation/package repository used for the Cursor path: [`edamame_cursor`](https://github.com/edamametechnologies/edamame_cursor)
 
 Behavioral-model and verdict state are internal to the EDAMAME divergence
 engine. OpenClaw memory remains optional operational checkpointing for the
@@ -900,6 +938,13 @@ The live benchmark suite records:
 - a run manifest with scenario set hash and git SHA
 
 These artifacts enable independent inspection of every verdict.
+
+Two engineering lessons shaped the current draft. First, separating producer
+cadence from verdict cadence made the downstream correlation loop much easier
+to explain and debug. Second, benign background traffic proved harder to
+stabilize than the core lineage or credential-theft scenarios. That is why
+this revision treats the current snapshot as useful but provisional rather
+than as a polished production operating point.
 
 ### 6.3 Claim Gating and Validation Maturity Tiers
 
@@ -955,14 +1000,15 @@ supports safer action review in T1-validated workflows.
 
 ## 7. Evaluation: The BadAgentUse Benchmark
 
-We introduce **BadAgentUse**, an open benchmark for evaluating agentic-system
-monitors against real endpoint telemetry. Unlike prior benchmarks that simulate
-network traces or rely on sandboxed environments, BadAgentUse injects live
-traffic into a production-grade Linux VM and evaluates detection against
-actual EDAMAME Posture session captures.
+We use **BadAgentUse** as a live, trace-backed benchmark for the downstream
+correlation loop against real endpoint telemetry. Unlike prior benchmarks that
+simulate network traces or rely only on sandboxed logs, BadAgentUse injects
+live traffic into an instrumented Linux VM and scores detection against actual
+EDAMAME Posture session captures. The current aggregate numbers should not be
+read as full end-to-end OpenClaw/Cursor deployment scores.
 
 ### 7.1 Setup
-- **Environment:** Lima VM (`openclaw-security`), Ubuntu 24.04, 4 vCPU / 4 GiB
+- **Environment:** Lima VM, Ubuntu 24.04, 4 vCPU / 4 GiB
 - **Observer:** EDAMAME Posture daemon (eBPF-backed on aarch64 Linux) with
   MCP Streamable HTTP endpoint on port 3000
 - **Reasoning-plane path:** In production, OpenClaw publishes behavioral-model
@@ -972,16 +1018,23 @@ actual EDAMAME Posture session captures.
   scenario-specific behavioral-model slices directly via
   `upsert_behavioral_model` after deriving them from the scenario contract and
   live baseline telemetry. This isolates the downstream divergence engine from
-  cron cadence and LLM nondeterminism. End-to-end extrapolator behavior is
-  validated separately by integration and E2E tests rather than by the main
-  aggregate metric loop.
-- **Protocol:** 50 versioned JSON scenario files in `tests/benchmark/live-scenarios/`
-- **Iterations:** configurable via `--iterations`; the current canonical artifact
-  lineage is a partial live sweep rather than a uniform full grid
-- **Seeds:** 12 distinct seeds in the current canonical live evidence set, with
+  producer-side cron cadence and transcript-to-model nondeterminism.
+  End-to-end extrapolator behavior is validated separately by integration and
+  E2E tests rather than by the main aggregate metric loop.
+- **Cadence for the measurements in this draft:** production defaults use
+  300 s internal divergence/vulnerability intervals and `*/5` OpenClaw
+  publication/reader cron. Executive demos use 60 s internal loops and `*/2`
+  OpenClaw cron. The explicit-slice benchmark helper accelerates the
+  divergence engine further (down to 1 s in the helper path) because the
+  behavioral slice is injected directly before verdict polling.
+- **Protocol:** 50 versioned JSON scenario files in the benchmark scenario
+  directory (`tests/benchmark/live-scenarios`)
+- **Iterations:** configurable via `--iterations`; the current reproducible
+  branch snapshot is a 10-iteration live sweep over the current 50-scenario set
+- **Seeds:** 10 distinct seeds in the current branch snapshot, with
   deterministic target-IP rotation
 - **Trial unit:** one scenario evaluated per seed-iteration pair. The confusion
-  matrix (Section 7.4) reports n=273 valid runs across 12 seeds, with 172
+  matrix (Section 7.4) reports n=468 valid runs across 10 seeds, with 32
   skipped runs preserved in the readiness scorecard. Each iteration varies
   seeds and settling behavior; all iteration traces remain in artifacts.
 
@@ -999,6 +1052,11 @@ actual EDAMAME Posture session captures.
 | Allowlist semantics | Exact domain OR IP; no wildcards | AND logic: process AND destination must match |
 | MCP endpoint | `127.0.0.1:3000`, PSK-authenticated | Localhost-only by default |
 | LLM (attack detection) | `openai/gpt-5.1` | Deterministic tiers do not use LLM; compatible Azure-hosted OpenAI Responses models are supported as alternate providers |
+
+The important timing distinction is that the 51.6 s median reported later
+combines accelerated engine cadence with slower underlying telemetry
+enrichment; it is not evidence that the production default timer itself runs on
+a 51.6 s interval.
 
 ### 7.2 Scenario Design (Versioned Categories)
 
@@ -1039,17 +1097,19 @@ We adopt the metric framework from AgentSentinel [Hu et al., 2025]:
 - **FNR** (False Negative Rate) = FN / (FN + TP) -- attacks that evaded detection
 - **ASR** (Attacker Success Rate) = FNR -- attacks that succeeded despite monitoring
 - **FT** (False Trigger) = FPR -- identical to FPR for symmetry
-- **TTD** (Time-to-Detect) = median and p95 detection latency (ms), computed
-  from injection timestamp to first evidence capture
-- **Wilson CI95** on DSR and FPR for statistical significance
+- **TTD** (Time-to-Detect) = median and p95 detection latency (ms), measured by
+  the harness from injection timestamp to the first scored detection event
+- **Wilson CI95** on precision and recall for the current snapshot. Because the
+  benign denominator is still small and being rebuilt, we discuss FPR
+  qualitatively rather than treat its current interval as stable evidence.
 
-All metrics are computed from trace-backed NDJSON results by
-`summarize_results.sh`, which also produces per-category and per-seed
-breakdowns for stability analysis.
+All metrics are computed from trace-backed NDJSON results by the benchmark
+summarizer, which also produces per-category and per-seed stability
+breakdowns.
 
 ### 7.4 Statistical Confidence Reporting (Wilson Interval)
 
-To bound measured proportions (precision/recall), we use the Wilson score
+To bound measured proportions in the current branch snapshot, we use the Wilson score
 interval (Wilson, 1927). For `k` successes out of `n` trials and `z=1.96`
 (95% confidence):
 
@@ -1061,118 +1121,122 @@ half  = z * sqrt(p_hat*(1-p_hat)/n + z^2/(4n^2)) / den
 CI95  = [center - half, center + half]
 ```
 
-In our current canonical live evidence set:
+In the current reproducible branch snapshot used by this draft:
 
 | | Predicted DIVERGENCE | Predicted CLEAN |
 |---|---|---|
-| **Ground-truth attack** | TP = 225 | FN = 3 |
-| **Ground-truth benign** | FP = 36 | TN = 9 |
+| **Ground-truth attack** | TP = 317 | FN = 31 |
+| **Ground-truth benign** | FP = 0 | TN = 120 |
 
-Precision = 225/261 = 0.862 and recall = 225/228 = 0.987, yielding CI95
-[0.815, 0.899] and [0.962, 0.996], respectively (n = 273 valid runs, 12 seeds).
+Precision = 317/317 = 1.000 and recall = 317/348 = 0.911, yielding CI95
+[0.988, 1.000] and [0.876, 0.937], respectively (n = 468 valid runs, 10 seeds).
+With TN=120 and FP=0, the measured benign slice in this sweep stayed clean, but
+we still treat benign generalization as environment-dependent outside the
+versioned scenario contracts used here.
 
-The 3 FN are highly concentrated in two stress buckets: 2 occur in
-adversarial-evasion behavior, with the remaining miss in intent-proof-floor
-timing. Likewise, 22 of the 36 FP arise from noisy-benign traffic, with the
-remaining 14 in the broader network-intent-correlation bucket. The
-aggregate result therefore reflects localized boundary conditions rather than
-uniform degradation across categories, and points directly to two remaining
-needs: stronger benign-traffic baselining and better coverage of
-living-off-the-land behavior.
+The 31 FN are not uniformly distributed. Thirty come from the three scenario
+contracts whose `expected_enforcement` is `DESIGNED_MISS`; these scenarios are
+intentionally retained as attack-class rows in the confusion matrix so that the
+reported recall continues to reflect known blind spots rather than hiding them.
+The remaining miss is a single non-designed miss in
+network-intent-correlation. The aggregate result therefore reflects one
+residual accidental miss plus an explicitly versioned
+allowlist-respecting living-off-the-land blind-spot bucket, not broad
+degradation across the suite.
 
 ### 7.5 Results
 
-#### Current Canonical Live Evidence Set
+#### Current Reproducible Branch Snapshot
 
-*Results below come from the canonical evidence set in
-`artifacts/live-paper-summary.json` (50 planned scenarios; 273 valid runs
-across 12 seeds, with 172 skipped runs retained in the readiness scorecard).
-These aggregate metrics are from the OpenClaw-derived live
-benchmark population under the explicit-slice producer mode
-(`upsert_behavioral_model`) into EDAMAME; Cursor uses the raw-session producer
-mode (`upsert_behavioral_model_from_raw_sessions`) but is not a separate
-benchmark cohort in this draft.*
+*Results below come from the current reproducible branch snapshot in
+`artifacts/live-paper-summary.json` (50 planned scenarios; 468 valid runs
+across 10 seeds, with 32 skipped runs retained in the readiness scorecard).
+These aggregate metrics measure EDAMAME's downstream correlation loop under the
+explicit-slice producer mode (`upsert_behavioral_model`) on a live runtime, not
+the full end-to-end transcript-publication path. To keep the sweep tractable,
+the benchmark uses accelerated cadence plus benchmark-scoped runtime assists
+recorded in the manifest, including score-kick flushing and preservation of
+benchmark-provided `ingested_at` timestamps for slices tagged `benchmark`;
+these choices reduce waiting and verdict-latency overhead but do not change
+scenario labels, confusion-matrix accounting, or post-hoc scoring. Cursor uses
+the raw-session producer mode used by workstation integrations and is
+validated separately rather than as a second quantitative cohort in this
+draft. The snapshot below is the completed live sweep for the current scenario
+set, not a partial provisional subset.*
 
-**Claim-binding metadata (canonical evidence lineage):**
+**Snapshot metadata:**
 
-- `run_id`: `run-live-20260304T234441Z-live`
-- `git_sha`: `473465c`
-- `scenario_set_version`: `22cb4a6cbddf88154435207c279143f7245de94dbc47c5803ca349eb10f3de1d`
+- `run_id`: `run-live-20260313T194140Z-live`
+- `git_sha`: `aca9156`
+- `scenario_set_version`: `fa1266a7eb7b2645...` (full hash in `docs/CLAIM_ARTIFACT_INDEX.md`)
 - `mode`: `live`
 - `benchmark_mode`: `live`
 
 <!-- AUTO_METRICS_START -->
 | Metric | Value |
 |---|---|
-| Total runs | 273 |
-| Precision | 0.8620689655172413 |
-| Recall | 0.9868421052631579 |
-| Precision CI95 | [0.8149560047336936, 0.898678107127887] |
-| Recall CI95 | [0.9620350252457207, 0.9955153022192381] |
-| Median latency (ms) | 45810 |
-| p95 latency (ms) | 53582 |
+| Total runs | 468 |
+| Precision | 1 |
+| Recall | 0.9109195402298851 |
+| Precision CI95 | [0.988026490330431, 1] |
+| Recall CI95 | [0.8763311151407897, 0.9365346744645328] |
+| Median latency (ms) | 51590 |
+| p95 latency (ms) | 66879 |
 | Rollback reliability | 1 |
-| Stability (precision stddev) | 0.10530453269195077 |
-| Stability (recall stddev) | 0.07229988054812211 |
+| Stability (precision stddev) | 0 |
+| Stability (recall stddev) | 0.009001831155373185 |
 <!-- AUTO_METRICS_END -->
 
-**Readiness note.** The current committed lineage remains below the repo's
-publication gate: `artifacts/arxiv-readiness-scorecard.json` is still `NO_GO`
-because the precision CI95 lower bound is 0.815 and the skipped-run ratio is
-38.7%. We keep these values in the draft because they are the currently
-reproducible canonical artifacts on this branch.
+**Readiness note.** The current committed lineage passes the repo's publication
+gate: `artifacts/arxiv-readiness-scorecard.json` is `GO` because the precision
+CI95 lower bound is 0.988, the recall CI95 lower bound is 0.876, and the
+skipped-run ratio is 6.4%.
+
+![Canonical Live Benchmark Summary for the Current Live Sweep](figures/fig5_results.svg){ width=100% }
 
 #### Per-Category Detection
 
 | Category | Run N | DSR | FPR | Notes |
 |----------|-------|-----|-----|-------|
-| Network intent correlation | 68 | 1.000 | 0.700 | undeclared egress is covered well, but benign allowance ambiguity still produces many false triggers |
-| Process lineage verification | 45 | 1.000 | -- | spawned\_from\_tmp, wrapper lineage, nested chains |
-| Credential theft detection | 36 | 1.000 | -- | SSH, kube, gnupg, browser-cookie access patterns |
-| Credential-network combined | 7 | 1.000 | -- | combined credential + egress behavior |
-| Intent-proof floor | 37 | 0.973 | -- | one remaining miss in floor-policy timing |
-| Lateral movement | 1 | 1.000 | -- | nc-based lateral-probe preparation behavior |
-| Adversarial evasion | 54 | 0.963 | -- | most cases detect; two LotL/timing misses remain |
-| Noisy benign | 25 | -- | 0.880 | dominant benign false-positive source in the current live set |
+| Network intent correlation | 160 | 0.990 | 0.000 | one remaining miss in a partial-allowlist Python case; benign allowance cases stayed clean |
+| Process lineage verification | 59 | 1.000 | -- | perfect across tmp-spawn, wrapper lineage, and nested chains |
+| Credential theft detection | 30 | 1.000 | -- | SSH, kube, gnupg, browser-cookie access patterns |
+| Credential-network combined | 10 | 1.000 | -- | combined credential + egress behavior |
+| Intent-proof floor | 59 | 1.000 | -- | floor-policy and temporary-spawn floor checks all hit in this sweep |
+| Lateral movement | 10 | 1.000 | -- | nc-based lateral-probe preparation behavior |
+| Adversarial evasion | 80 | 0.625 | -- | remaining misses are concentrated in allowlist-respecting LotL/timing stress cases |
+| Noisy benign | 60 | -- | 0.000 | benign DNS, NTP, and auto-update traffic stayed clean in this sweep |
 
 Categories E (Posture & Policy) and F (LAN Awareness) are validated via
-integration scripts with 100% pass rate (Section 7.7).
+dedicated integration scripts and summarized separately in Sections 7.7 and
+7.8; they are not folded into the confusion matrix above.
 
 #### Analysis
 
-**Observed false negatives (3).** Most misses occur in the
-adversarial-evasion bucket (2 of 3), with one remaining miss in
-intent-proof-floor timing. That concentration is more informative than the raw
-count: the system remains strong on process-lineage, credential-access,
-combined credential-egress, lateral-movement, and core network-intent
-categories, while the residual miss surface is localized to living-off-the-land
-executions that preserve expected binaries/destinations and to cases where
-Layer-7 context arrives after the initial decision window.
+**Observed false negatives (31).** The miss surface is concentrated and largely
+intentional. Thirty of the 31 attack-side misses come from the three
+`DESIGNED_MISS` scenario contracts repeated across 10 seeds; those rows remain
+in the attack class and therefore still lower the reported recall. The
+remaining miss is one non-designed miss in network-intent-correlation. The
+practical implication is that this branch snapshot remains strong on
+process-lineage, credential-access, credential-plus-egress,
+intent-proof-floor, lateral-movement, and most core network-intent cases,
+while the dominant unresolved weakness is still allowlist-respecting
+living-off-the-land behavior rather than a broad loss of detector coverage.
 
-**Layer-7 timing sensitivity.** The residual intent-proof-floor miss still
-looks like an observability-boundary issue rather than a rule-construction
-failure. When the 5-minute Layer-7 full-refresh cycle has not yet captured
-process-lineage context at snapshot time, the first decision can be too early;
-once enrichment lands, the same underlying logic succeeds.
+**Benign stability in the measured set.** No false positives were observed in
+this 10-seed sweep: noisy-benign scenarios stayed clean and benign allowlist
+cases no longer produced the earlier operator-fatigue pattern. That is an
+important publication result for this branch snapshot, even though real
+deployments still need environment-specific allowlisting and baseline review.
 
-**Operational false positives (benign ambiguity).** False positives are still
-localized rather than uniform: 22 of the 36 FP arise in the noisy-benign
-bucket (`FPR=0.880`, 22/25 runs), with the remaining 14 in the broader
-network-intent-correlation category. This suggests that the current burden is
-split between background traffic and benign-but-under-specified allowlist
-contexts rather than generalized instability across all categories. In
-deployment, that still matters:
-persistent benign alerts erode operator trust quickly, so environment-specific
-allowlisting or baseline learning is needed before policy hardening.
-
-High-level takeaway: the current 12-seed live evidence set reinforces the
+High-level takeaway: the current 10-seed live evidence set reinforces the
 system's value as a runtime correlation layer for lineage, credential access,
-lateral movement, and undeclared egress, while sharpening two caveats. First,
-benign background traffic still needs better baseline treatment to avoid
-operator fatigue. Second, adversarial/LotL behavior that stays within expected
-tools or appears before Layer-7 enrichment remains difficult. The system is
-therefore best understood as a practical early-warning layer, not as an
-interception-grade prevention mechanism.
+lateral movement, and undeclared egress, while sharpening one main caveat:
+adversarial/LotL behavior that remains inside expected tools or destinations is
+still the dominant recall bottleneck. The system is therefore best understood
+as a practical early-warning layer, not as an interception-grade prevention
+mechanism.
 
 ### 7.6 Ablation Studies
 
@@ -1190,7 +1254,9 @@ These ablations define component contributions. Running each mode writes
 comparative summaries to `artifacts/live-paper-summary.json` for the benchmark-summary
 visualization used in companion materials. In
 this draft, full `no-floor` / `no-l7` / `no-settling` comparative tables are
-not yet included in the canonical confusion-matrix snapshot.
+not yet included in the current confusion-matrix snapshot. We therefore treat
+this subsection as implementation status rather than as a measured comparative
+claim set.
 
 **eBPF vs netstat2 fallback.** `tests/test_l7_ebpf_ablation.sh` runs the same
 Layer-7 checks twice: with eBPF kprobes (default on kernels $\geq$ 5.8), then
@@ -1201,14 +1267,13 @@ with tracefs unmounted to force netstat2 `/proc/net/*` fallback.
 | eBPF (kprobe) | 9 | 9/9 | 15 s | 50 |
 | netstat2 (fallback) | 9 | 9/9 | 45 s | 31 |
 
-Both modes pass 9/9 and produce the same enrichment fields (`pid`,
-`process_name`, parent lineage including `parent_script_path`,
-`spawned_from_tmp`, `open_files`, cwd, memory, cpu_usage). Latency differs
-(15 s with eBPF vs 45 s fallback) because eBPF only accelerates socket-to-PID
-mapping. After PID resolution, both paths share the same `/proc` enrichment
-logic. Fallback can miss very short-lived sockets between polls, but for
-connections that survive at least one poll cycle, detection capability is
-preserved.
+Both modes pass 9/9 and preserve the same core enrichment fields: PID, process
+name, parent lineage, temp-spawn signal, open-file context, cwd, memory, and
+CPU usage. Latency differs (15 s with eBPF vs 45 s fallback) because eBPF only
+accelerates socket-to-PID mapping. After PID resolution, both paths share the
+same `/proc` enrichment logic. Fallback can miss very short-lived sockets
+between polls, but for connections that survive at least one poll cycle,
+detection capability is preserved.
 
 ### 7.7 Multi-Signal Observer Validation
 
@@ -1218,69 +1283,71 @@ Categories E (Posture) and F (LAN) validate that the system-plane observer
 extends beyond network sessions. The test suite verifies MCP tool
 accessibility for five signal families:
 
-1. **Network sessions:** `get_sessions`, `get_exceptions` (Categories A-D, G-H)
-2. **Anomaly/blacklist:** `get_anomalous_sessions`, `get_blacklisted_sessions`
-3. **Posture:** `get_score`, `check_policy`, `advisor_get_todos` (Category E)
-4. **LAN:** `get_lan_devices`, `get_lan_host_device`, `set_lan_auto_scan` (Category F)
-5. **Identity:** `get_pwned_emails`, `get_breaches` (Category E)
+1. **Network sessions:** session and exception APIs (Categories A-D, G-H)
+2. **Anomaly/blacklist:** anomalous-session and blacklist APIs
+3. **Posture:** score, policy, and advisor APIs (Category E)
+4. **LAN:** device, host-port, and auto-scan APIs (Category F)
+5. **Identity:** pwned-email and breach APIs (Category E)
 
-For benchmark/tool-access validation, the suite calls `get_sessions`; the
+For benchmark/tool-access validation, the suite calls the session API; the
 internal divergence and vulnerability loops themselves consume
-`get_current_sessions` within the EDAMAME host runtime.
+current-session snapshots within the EDAMAME host runtime.
 
-All five families are exercised deterministically (no LLM) with 100% pass
-rates, confirming that the two-plane correlation loop can incorporate signals
-from any of these dimensions without infrastructure changes.
+All five families are exercised through deterministic tool-access checks (no
+LLM in this subsection), confirming that the telemetry surface spans these
+dimensions without infrastructure changes. The broader pass/fail state of
+those checks is summarized in Section 7.8 rather than collapsed into a single
+100% claim.
 
 ### 7.8 Empirical Validation: Four-Tier Test Architecture
 
 Beyond the benchmark suite, we maintain a four-tier test architecture:
 
-**Tier 0: Smoke and component validation** (`smoke.sh`, `test_skill_components.sh`,
-`test_extrapolator_validation.sh`, `test_posture.sh`). Deterministic checks
-for daemon health, MCP tool visibility, session APIs, behavioral model engine
-handoff, posture skill runtime. 79+ checks across 4 test groups, all passing.
+**Tier 0: Smoke and component validation.** Smoke, component,
+extrapolator-validation, and posture scripts cover daemon health, MCP tool
+visibility, session APIs, behavioral model engine handoff, and posture skill
+runtime. 79+ checks across 4 test groups, all passing.
 
-**Tier 1: Layer-7 telemetry validation** (`test_l7_telemetry.sh`,
-`test_l7_ebpf_ablation.sh`). Deterministic checks for parent lineage,
-open-files detection, field correctness, and coverage (20 checks plus 2x9
-eBPF/fallback checks).
+**Tier 1: Layer-7 telemetry validation.** L7 telemetry and eBPF/fallback
+ablation scripts verify parent lineage, open-files detection, field
+correctness, and coverage (20 checks plus 2x9 eBPF/fallback checks).
 
-**Tier 2: Attack and policy/LAN detection**
-(`test_attack_detection.sh`, `test_posture_policy.sh`,
-`test_lan_awareness.sh`). Engine-driven scenarios use the hybrid
+**Tier 2: Attack and policy/LAN detection.** Attack-detection,
+posture-policy, and LAN-awareness scripts exercise the hybrid
 Rust-deterministic + LLM-adjudication pipeline for attack detection, alongside
 deterministic policy and LAN checks to validate posture/todos and
 LAN/anomaly/blacklist/HIBP APIs.
 
-**Tier 3: Two-plane E2E and vulnerability detection** (`test_two_plane_e2e.sh`,
-`test_vulnerability_detection.sh`). Full worker + extrapolator + inject + detector
-pipeline validation plus CVE-inspired vulnerability-detection checks across token
-exfiltration, exposed gateways, weaponized skills, sandbox escapes,
-credential sprawl, and memory poisoning.
+**Tier 3: Two-plane E2E and vulnerability detection.** Two-plane E2E and
+vulnerability-detection scripts validate the full worker + extrapolator +
+inject + detector pipeline plus CVE-inspired checks across token exfiltration,
+exposed gateways, weaponized skills, sandbox escapes, credential sprawl, and
+memory poisoning.
 
-\begingroup\footnotesize
+\begingroup\scriptsize
 \begin{center}
-\setlength{\tabcolsep}{4pt}
+\setlength{\tabcolsep}{1.5pt}
 \renewcommand{\arraystretch}{1.08}
+\resizebox{0.98\linewidth}{!}{%
 \begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.05\linewidth}>{\raggedright\arraybackslash}p{0.24\linewidth}>{\raggedright\arraybackslash}p{0.07\linewidth}>{\raggedright\arraybackslash}p{0.08\linewidth}>{\raggedright\arraybackslash}p{0.17\linewidth}>{\raggedright\arraybackslash}p{0.27\linewidth}@{}}
 \toprule
 Tier & Script & Checks & LLM? & Pass Rate & Notes \\
 \midrule
-0 & \texttt{test\_poc.sh} & 29 & Mixed & 97\% (28/28 + 1 skip) & Infrastructure, telemetry, MCP tools, agent \\
-0 & \texttt{smoke.sh} & 14 & No & 100\% & Daemon health, eBPF kprobes \\
-0 & \shortstack[l]{\texttt{test\_skill\_}\\\texttt{components.sh}} & 55 & No & 100\% & MCP tools, engine handoff \\
-0 & \shortstack[l]{\texttt{test\_extrapolator\_}\\\texttt{validation.sh}} & -- & Yes & 100\% & Behavioral model pipeline \\
-0 & \texttt{test\_posture.sh} & 24 & Yes & 100\% & Skill runtime invocation \\
-1 & \shortstack[l]{\texttt{test\_l7\_}\\\texttt{telemetry.sh}} & 20 & No & 100\%* & PID, process name, cmd attribution \\
-1 & \shortstack[l]{\texttt{test\_l7\_ebpf\_}\\\texttt{ablation.sh}} & 2x9 & No & Partial & eBPF vs fallback comparison \\
-2 & \shortstack[l]{\texttt{test\_attack\_}\\\texttt{detection.sh}} & 22 & Mixed & Partial** & Engine verdict pipeline under stabilization \\
-2 & \shortstack[l]{\texttt{test\_posture\_}\\\texttt{policy.sh}} & 8 & No & 87\% & 7/8 pass \\
-2 & \shortstack[l]{\texttt{test\_lan\_}\\\texttt{awareness.sh}} & 6 & No & 83\% & 5/6 pass \\
-3 & \shortstack[l]{\texttt{test\_two\_plane\_}\\\texttt{e2e.sh}} & -- & Yes & Partial** & Worker + extrapolator + detector pipeline \\
-3 & \shortstack[l]{\texttt{test\_vulnerability\_}\\\texttt{detection.sh}} & 66 & Yes & 86\% & 57/66 pass \\
+0 & PoC suite & 29 & Mixed & 97\% (28/28 + 1 skip) & Infrastructure, telemetry, MCP tools, agent \\
+0 & Smoke & 14 & No & 100\% & Daemon health, eBPF kprobes \\
+0 & Skill components & 55 & No & 100\% & MCP tools, engine handoff \\
+0 & Extrapolator validation & -- & Yes & 100\% & Behavioral model pipeline \\
+0 & Posture runtime & 24 & Yes & 100\% & Skill runtime invocation \\
+1 & L7 telemetry & 20 & No & 100\%* & PID, process name, cmd attribution \\
+1 & L7 eBPF ablation & 2x9 & No & Partial & eBPF vs fallback comparison \\
+2 & Attack detection & 22 & Mixed & Partial** & Engine verdict pipeline under stabilization \\
+2 & Posture policy & 8 & No & 87\% & 7/8 pass \\
+2 & LAN awareness & 6 & No & 83\% & 5/6 pass \\
+3 & Two-plane E2E & -- & Yes & Partial** & Worker + extrapolator + detector pipeline \\
+3 & Vulnerability detection & 66 & Yes & 86\% & 57/66 pass \\
 \bottomrule
 \end{tabular}
+}
 \end{center}
 \endgroup
 
@@ -1314,10 +1381,12 @@ BadAgentUse
 validates five signal families and explicitly labels three designed blind
 spots. The suite is extensible via new JSON scenarios, without code changes.
 
-**Operational burden of benign noise.** The noisy-benign slice currently shows
-`FPR=0.40` (2/5). This is acceptable for controlled benchmarking but high for
-always-on production operations; reducing benign-noise alerts is a deployment
-priority alongside improving attack recall.
+**Benign calibration is improved in this snapshot, not solved forever.** The
+current measured sweep reports `FPR=0.000` for the noisy-benign category, so
+the earlier operator-fatigue pattern is not present in this branch snapshot.
+That does not eliminate future benign-noise burden in deployment: local update
+traffic, private mirrors, and organization-specific tooling can still require
+environment-specific allowlisting and baseline review.
 
 **Comparative baselines are currently absent.** BadAgentUse does not yet include
 head-to-head comparisons against AgentSentinel, AgentArmor, LlamaFirewall,
@@ -1328,32 +1397,42 @@ systems for MCP telemetry (Section 9.2).
 
 ## 8. Reproducibility
 
-All source code, scenario definitions, test scripts, and evaluation harnesses
-are published at:
-**https://github.com/edamametechnologies/openclaw_security**
+All source code, benchmark scenarios, harness scripts, and canonical run
+artifacts are contained in the public
+[agent_security](https://github.com/edamametechnologies/agent_security)
+repository. Key artifact paths:
 
-Key artifact paths:
-
-- `tests/benchmark/live-scenarios/`: versioned JSON scenario contracts for live runs
-- `tests/benchmark/run_live_suite.py`: benchmark harness
+- `tests/benchmark/live-scenarios/`: 50 versioned JSON scenario contracts
+- `tests/benchmark/run_live_suite.py`: benchmark harness (orchestrates live
+  runs inside a Lima VM)
 - `tests/benchmark/summarize_results.sh`: metric computation from NDJSON traces
-- `reproduce_live.sh`: single-command full reproduction
-- `artifacts/`: generated results (summary JSON, NDJSON traces, paper bundle)
-- `artifacts/exec-demo-pack-<timestamp>/`: latest 4-scenario executive demo artifact pack (MP4 + verification contracts)
+- `tests/benchmark/validate_claims.sh`: checks that paper claims stay within
+  evidence bounds
+- `docs/manifest-schema.json`: formal JSON Schema for the run manifest
 - `docs/CLAIM_ARTIFACT_INDEX.md`: canonical claim-to-artifact lineage binding
+- `demo/cli-injection/`: attack-injection scripts used by executive demos
 
-Single-command reproduction for paper metrics:
+Canonical run artifacts shipped with this draft:
+
+- `artifacts/live-paper-results.ndjson` -- per-scenario NDJSON traces
+- `artifacts/live-paper-summary.json` -- aggregate metrics and confusion matrix
+- `artifacts/live-paper-manifest.json` -- full run manifest (scenario groups,
+  versions, cron config)
+- `artifacts/paper-bundle/*` -- generated whitepaper bundle with embedded
+  metrics
+
+Single-command artifact-level reproduction (recomputes the summary from the
+committed NDJSON without requiring a live VM):
 
 ```bash
-./reproduce_live.sh
+bash scripts/reproduce_results.sh
 ```
 
-This generates:
+Full live reproduction (requires a configured Lima VM with EDAMAME Posture):
 
-- `artifacts/live-paper-results.ndjson`
-- `artifacts/live-paper-summary.json`
-- `artifacts/live-paper-manifest.json`
-- `artifacts/paper-bundle-live/*` (generated whitepaper bundle with embedded metrics)
+```bash
+python3 tests/benchmark/run_live_suite.py --mode live
+```
 
 ## 9. Limitations and Future Work
 
@@ -1364,15 +1443,19 @@ This generates:
    destinations. BadAgentUse explicitly labels 3 of 50 scenarios as
    `DESIGNED_MISS` for this reason. Closing this gap requires behavioral
    baselines, anomaly fusion, or payload-aware inspection.
-2. **Layer-7 refresh latency.** Full Layer-7 enrichment refresh runs every
-   5 minutes (sensitive-file scan every 30 s on Linux). Correlation rules that
-   rely on `spawned_from_tmp` or `open_files` can miss short-lived processes if
+2. **Layer-7 refresh latency.** Full Layer-7 enrichment uses a 5-minute
+   production default (sensitive-file scan every 30 s on Linux). Demo and
+   benchmark runs shorten the engine interval, but they do not eliminate this
+   underlying enrichment delay. Correlation rules that rely on
+   `spawned_from_tmp` or `open_files` can miss short-lived processes if
    snapshots are stale. The `no-settling` ablation (Section 7.6) quantifies this.
 3. **Reactive detection delay (operationally significant).** Example Rule A is
-   post-observation and therefore delayed (median 45.8 s). In high-consequence
-   environments, this window may still allow harmful actions before alerting.
-   Example Rule B reduces this for MCP-gated actions, but direct shell/library
-   paths can bypass pre-action checks.
+   post-observation and therefore delayed. The 51.6 s median reported in
+   Section 7 comes from an accelerated benchmark configuration, not the
+   steady-state production default. In high-consequence environments, even that
+   shortened window may still allow harmful actions before alerting. Example
+   Rule B reduces this for MCP-gated actions, but direct shell/library paths
+   can bypass pre-action checks.
 4. **Interception trade-off vs AgentSentinel.** AgentSentinel reduces timing
    exposure for intercepted operations by pausing execution inline; our approach
    prioritizes portability and lower integration friction. This is a real
@@ -1460,18 +1543,21 @@ protocol scope.
 
 ### 10.1 Telemetry Privacy and Data Sovereignty
 
-EDAMAME Posture follows a **privacy-first, user-up** architecture: all
-telemetry is collected, processed, and stored locally on the endpoint. Session
-data, Layer-7 enrichment, and posture snapshots are retained for a rolling 8-hour
-window and then discarded. No telemetry -- including process metadata, open
-file paths, command lines, or network sessions -- is ever transmitted to the
-EDAMAME backend or any external service. The EDAMAME platform
-(https://edamame.tech) is designed so that endpoint security operates in a
-user/agent-up model where the user or agent owns and controls their own
-security posture; no administrator can look down into endpoints or collect
-personally identifiable information (PII). This stands in contrast to
-traditional enterprise EDR/MDM architectures where a central admin has full
-visibility into endpoint activity.
+EDAMAME Posture follows a **local-first, user-up** architecture: raw telemetry
+is collected, processed, and stored on the endpoint. Session data, Layer-7
+enrichment, and posture snapshots are retained for a rolling 8-hour window and
+then discarded. In local-only deployments, telemetry stays on the host. When
+remote LLM adjudication is enabled, however, a structured evidence bundle may
+be sent to the configured provider for soft-signal classification and alert
+synthesis. We therefore avoid the stronger claim that no information ever
+leaves the host in all modes.
+
+The EDAMAME platform (https://edamame.tech) is designed so that endpoint
+security operates in a user/agent-up model where the user or agent owns and
+controls their own security posture by default; no administrator can look down
+into endpoints by default. This stands in contrast to traditional enterprise
+EDR/MDM architectures where a central admin has full visibility into endpoint
+activity.
 
 In multi-user or shared-host deployments, Layer-7 enrichment may include usernames
 and command-line arguments, creating a local privacy surface. The MCP endpoint
@@ -1495,9 +1581,11 @@ security guidelines.
 We map our research to the Menlo Report's four ICT research ethics principles:
 
 - **Respect for Persons.** No human subjects or real-user data are involved.
-  All evaluation runs in an isolated Lima VM with synthetic injections. No PII
-  is collected, stored, or transmitted. The 8-hour local retention window
-  (Section 10.1) ensures no persistent personal data accumulates.
+  All evaluation runs in an isolated Lima VM with synthetic injections. Local
+  telemetry can still contain user-adjacent metadata such as usernames or
+  command lines, and remote-provider deployments must therefore treat the
+  provider boundary explicitly. The 8-hour local retention window (Section 10.1)
+  limits how long such data remains on disk.
 - **Beneficence.** The system is purely defensive. We document blind spots
   (LotL evasion, Section 4.3) and design limitations to prevent false
   confidence.
@@ -1512,27 +1600,32 @@ We map our research to the Menlo Report's four ICT research ethics principles:
 Generative AI tools (Claude, Cursor AI) assisted with code scaffolding and
 paper editing. All outputs were reviewed and validated by the human authors.
 No AI system is listed as an author. Scenario definitions, decision rules,
-and architecture diagrams are human-authored. LLM-driven test tiers
-(Categories A--C) use `openai/gpt-5.1` (with compatible
-`azure-openai-responses/*` alternate provisioning); deterministic
-tiers do not use LLM inference. Verdicts are deterministic given fixed
-telemetry (Example Rule A); only the natural-language explanation varies across
-runs.
+and final architectural claims were reviewed by the human authors. Deployments
+may configure `openai/gpt-5.1` or compatible `azure-openai-responses/*`
+providers for optional adjudication. The local deterministic evidence stage
+always runs first. In soft-signal cases, the configured LLM may influence the
+final operator-facing verdict and explanation, but CRITICAL deterministic
+findings remain non-downgradable. The explicit-slice benchmark reported in
+Section 7 should therefore be read as a downstream correlation snapshot under
+controlled model publication, not as proof that all deployments are fully
+deterministic.
 
 ## 11. Conclusion
 
-We present a practical two-plane runtime security model: correlate agent intent
+We present a two-plane runtime security model: correlate agent intent
 (reasoning plane) with host behavior (system plane), and flag divergence when
 behavior is unexplained by intent or triggers intent-independent critical
-signals (CVE vulnerability detection, blacklisted traffic). We instantiate the model
-in OpenClaw with EDAMAME Posture and evaluate
-it using trace-backed live artifacts.
+signals (for example CVE-inspired vulnerability checks or blacklisted traffic).
+We instantiate the model in OpenClaw with EDAMAME Posture and evaluate the
+downstream correlation loop using trace-backed live artifacts.
 
-The evidence supports the architectural claim: process-attributed telemetry plus
-intent correlation yields operationally useful detection. The boundary
-conditions are explicit: living-off-the-land behavior and telemetry timing
-windows remain primary blind spots, and comparative baseline studies are future
-work.
+The current branch snapshot supports the narrower architectural claim:
+process-attributed telemetry plus observer-owned intent correlation can yield
+operationally useful early-warning verdicts. It does not yet justify stronger
+claims about comparative superiority, benign-noise maturity, or end-to-end
+transcript-publication accuracy. The boundary conditions remain explicit:
+living-off-the-land behavior and telemetry timing windows are the primary
+blind spots, and comparative baseline studies remain future work.
 
 ## Appendix A. Multi-Signal Scenario Sketches
 
@@ -1687,61 +1780,63 @@ replication.
 
 ### Attack Surface and Benchmarks
 
-- Kai Greshake, Sahar Abdelnabi, Shailesh Mishra, Christoph Endres, Thorsten Holz, Mario Fritz. "Not what you've signed up for: Compromising Real-World LLM-Integrated Applications with Indirect Prompt Injection." arXiv:2302.12173 (2023). https://arxiv.org/abs/2302.12173
-- Qiusi Zhan, Zhixiang Liang, Zifan Ying, Daniel Kang. "InjecAgent: Benchmarking Indirect Prompt Injections in Tool-Integrated Large Language Model Agents." arXiv:2403.02691 (2024). https://arxiv.org/abs/2403.02691
-- "Exfiltration of personal information from ChatGPT via prompt injection." arXiv:2406.00199 (2024). https://arxiv.org/abs/2406.00199
-- Saeid Jamshidi et al. "Securing the Model Context Protocol: Defending LLMs Against Tool Poisoning and Adversarial Attacks." arXiv:2512.06556 (2025). https://arxiv.org/abs/2512.06556
-- Luo et al. "MCPTox: A Benchmark for Tool Poisoning Attack on Real-World MCP Servers." arXiv:2508.14925 (2025). https://arxiv.org/abs/2508.14925
-- Wang et al. "MCP Security Bench (MSB): Benchmarking Attacks Against Model Context Protocol in LLM Agents." arXiv:2510.15994 (2025). https://arxiv.org/abs/2510.15994
-- Zhou et al. "Technical Report: Evaluating Goal Drift in Language Model Agents." arXiv:2505.02709 (2025). https://arxiv.org/abs/2505.02709
+- Kai Greshake, Sahar Abdelnabi, Shailesh Mishra, Christoph Endres, Thorsten Holz, Mario Fritz. "Not what you've signed up for: Compromising Real-World LLM-Integrated Applications with Indirect Prompt Injection." arXiv:2302.12173 (2023). [arXiv:2302.12173](https://arxiv.org/abs/2302.12173)
+- Qiusi Zhan, Zhixiang Liang, Zifan Ying, Daniel Kang. "InjecAgent: Benchmarking Indirect Prompt Injections in Tool-Integrated Large Language Model Agents." arXiv:2403.02691 (2024). [arXiv:2403.02691](https://arxiv.org/abs/2403.02691)
+- "Exfiltration of personal information from ChatGPT via prompt injection." arXiv:2406.00199 (2024). [arXiv:2406.00199](https://arxiv.org/abs/2406.00199)
+- Saeid Jamshidi et al. "Securing the Model Context Protocol: Defending LLMs Against Tool Poisoning and Adversarial Attacks." arXiv:2512.06556 (2025). [arXiv:2512.06556](https://arxiv.org/abs/2512.06556)
+- Luo et al. "MCPTox: A Benchmark for Tool Poisoning Attack on Real-World MCP Servers." arXiv:2508.14925 (2025). [arXiv:2508.14925](https://arxiv.org/abs/2508.14925)
+- Wang et al. "MCP Security Bench (MSB): Benchmarking Attacks Against Model Context Protocol in LLM Agents." arXiv:2510.15994 (2025). [arXiv:2510.15994](https://arxiv.org/abs/2510.15994)
+- Zhou et al. "Technical Report: Evaluating Goal Drift in Language Model Agents." arXiv:2505.02709 (2025). [arXiv:2505.02709](https://arxiv.org/abs/2505.02709)
 
 ### Runtime Defense Systems
 
-- "AgentArmor: Enforcing Program Analysis on Agent Runtime Trace to Defend Against Prompt Injection." arXiv:2508.01249 (2025). https://arxiv.org/abs/2508.01249
-- "LlamaFirewall: An open source guardrail system for building secure AI agents." arXiv:2505.03574 (2025). https://arxiv.org/abs/2505.03574
-- Li et al. "AegisLLM: Scaling Agentic Systems for Self-Reflective Defense in LLM Security." arXiv:2504.20965 (2025). https://arxiv.org/abs/2504.20965
-- Wallarm et al. "A2AS: Agentic AI Runtime Security and Self-Defense." arXiv:2510.13825 (2025). https://arxiv.org/abs/2510.13825
-- "MI9: An Integrated Runtime Governance Framework for Agentic AI." arXiv:2508.03858 (2025). https://arxiv.org/abs/2508.03858
-- "AgentSentinel: An End-to-End and Real-Time Security Defense Framework for Computer-Use Agents." arXiv:2509.07764 (2025). https://arxiv.org/abs/2509.07764
-- Zhang et al. "Pro2Guard: Proactive Runtime Enforcement of LLM Agent Safety via Probabilistic Model Checking." arXiv:2508.00500 (2025). https://arxiv.org/abs/2508.00500
-- Chen et al. "MCP-Guard: A Multi-Stage Defense-in-Depth Framework for Securing Model Context Protocol in Agentic AI." arXiv:2508.10991 (2025). https://arxiv.org/abs/2508.10991
-- "Securing AI Agent Execution." arXiv:2510.21236 (2025). https://arxiv.org/abs/2510.21236
+- "AgentArmor: Enforcing Program Analysis on Agent Runtime Trace to Defend Against Prompt Injection." arXiv:2508.01249 (2025). [arXiv:2508.01249](https://arxiv.org/abs/2508.01249)
+- "LlamaFirewall: An open source guardrail system for building secure AI agents." arXiv:2505.03574 (2025). [arXiv:2505.03574](https://arxiv.org/abs/2505.03574)
+- Li et al. "AegisLLM: Scaling Agentic Systems for Self-Reflective Defense in LLM Security." arXiv:2504.20965 (2025). [arXiv:2504.20965](https://arxiv.org/abs/2504.20965)
+- Wallarm et al. "A2AS: Agentic AI Runtime Security and Self-Defense." arXiv:2510.13825 (2025). [arXiv:2510.13825](https://arxiv.org/abs/2510.13825)
+- "MI9: An Integrated Runtime Governance Framework for Agentic AI." arXiv:2508.03858 (2025). [arXiv:2508.03858](https://arxiv.org/abs/2508.03858)
+- "AgentSentinel: An End-to-End and Real-Time Security Defense Framework for Computer-Use Agents." arXiv:2509.07764 (2025). [arXiv:2509.07764](https://arxiv.org/abs/2509.07764)
+- Zhang et al. "Pro2Guard: Proactive Runtime Enforcement of LLM Agent Safety via Probabilistic Model Checking." arXiv:2508.00500 (2025). [arXiv:2508.00500](https://arxiv.org/abs/2508.00500)
+- Chen et al. "MCP-Guard: A Multi-Stage Defense-in-Depth Framework for Securing Model Context Protocol in Agentic AI." arXiv:2508.10991 (2025). [arXiv:2508.10991](https://arxiv.org/abs/2508.10991)
+- "Securing AI Agent Execution." arXiv:2510.21236 (2025). [arXiv](https://arxiv.org/abs/2510.21236)
 
 ### Formal Verification and Provable Safety
 
-- Xu et al. "ShieldAgent: Shielding Agents via Verifiable Safety Policy Reasoning." arXiv:2503.22738 (2025). https://arxiv.org/abs/2503.22738
-- Li et al. "VET Your Agent: Towards Host-Independent Autonomy via Verifiable Execution Traces." arXiv:2512.15892 (2025). https://arxiv.org/abs/2512.15892
-- Adharsh Kamath, Sishen Zhang, Calvin Xu, Shubham Ugare, Gagandeep Singh, Sasa Misailovic. "Enforcing Temporal Constraints for LLM Agents (Agent-C)." arXiv:2512.23738 (2025). https://arxiv.org/abs/2512.23738
-- Roham Koohestani. "AgentGuard: Runtime Verification of AI Agents." arXiv:2509.23864 (2025). https://arxiv.org/abs/2509.23864
+- Xu et al. "ShieldAgent: Shielding Agents via Verifiable Safety Policy Reasoning." arXiv:2503.22738 (2025). [arXiv:2503.22738](https://arxiv.org/abs/2503.22738)
+- Li et al. "VET Your Agent: Towards Host-Independent Autonomy via Verifiable Execution Traces." arXiv:2512.15892 (2025). [arXiv:2512.15892](https://arxiv.org/abs/2512.15892)
+- Adharsh Kamath, Sishen Zhang, Calvin Xu, Shubham Ugare, Gagandeep Singh, Sasa Misailovic. "Enforcing Temporal Constraints for LLM Agents (Agent-C)." arXiv:2512.23738 (2025). [arXiv:2512.23738](https://arxiv.org/abs/2512.23738)
+- Roham Koohestani. "AgentGuard: Runtime Verification of AI Agents." arXiv:2509.23864 (2025). [arXiv:2509.23864](https://arxiv.org/abs/2509.23864)
 
 ### Chain-of-Thought Monitoring
 
-- Rogers et al. "Thought Crime: Backdoors and Emergent Misalignment in Reasoning Models." arXiv:2506.13206 (2025). https://arxiv.org/abs/2506.13206
-- Baker et al. "Chain of Thought Monitorability: A New and Fragile Opportunity for AI Safety." arXiv:2507.11473 (2025). https://arxiv.org/abs/2507.11473
-- "When Chain of Thought is Necessary, Language Models Struggle to Evade Monitors." arXiv:2507.05246 (2025). https://arxiv.org/abs/2507.05246
-- Goldowsky-Dill et al. "CoT Red-Handed: Stress Testing Chain-of-Thought Monitoring." arXiv:2505.23575 (2025). https://arxiv.org/abs/2505.23575
+- Rogers et al. "Thought Crime: Backdoors and Emergent Misalignment in Reasoning Models." arXiv:2506.13206 (2025). [arXiv:2506.13206](https://arxiv.org/abs/2506.13206)
+- Baker et al. "Chain of Thought Monitorability: A New and Fragile Opportunity for AI Safety." arXiv:2507.11473 (2025). [arXiv:2507.11473](https://arxiv.org/abs/2507.11473)
+- "When Chain of Thought is Necessary, Language Models Struggle to Evade Monitors." arXiv:2507.05246 (2025). [arXiv:2507.05246](https://arxiv.org/abs/2507.05246)
+- Goldowsky-Dill et al. "CoT Red-Handed: Stress Testing Chain-of-Thought Monitoring." arXiv:2505.23575 (2025). [arXiv:2505.23575](https://arxiv.org/abs/2505.23575)
 
 ### Agent Orchestration Frameworks
 
-- LangChain / LangGraph. "LangGraph: Build stateful, multi-actor applications with LLMs." (2024). https://langchain-ai.github.io/langgraph/
-- Joao Moura. "CrewAI: Framework for orchestrating role-playing, autonomous AI agents." (2024). https://github.com/crewAIInc/crewAI
-- Qingyun Wu, Gagan Bansal, Jieyu Zhang, Yiran Wu, Beibin Li, Erkang Zhu, Li Jiang, Xiaoyun Zhang, Chi Wang. "AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation." arXiv:2308.08155 (2023). https://arxiv.org/abs/2308.08155
+- LangChain / LangGraph. "LangGraph: Build stateful, multi-actor applications with LLMs." (2024). [docs](https://langchain-ai.github.io/langgraph/)
+- Joao Moura. "CrewAI: Framework for orchestrating role-playing, autonomous AI agents." (2024). [repo](https://github.com/crewAIInc/crewAI)
+- Qingyun Wu, Gagan Bansal, Jieyu Zhang, Yiran Wu, Beibin Li, Erkang Zhu, Li Jiang, Xiaoyun Zhang, Chi Wang. "AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation." arXiv:2308.08155 (2023). [arXiv:2308.08155](https://arxiv.org/abs/2308.08155)
 
 ### Standards and Specifications
 
-- Edwin B. Wilson. "Probable Inference, the Law of Succession, and Statistical Inference." JASA (1927). [tandfonline.com/doi/10.1080/01621459.1927.10502953](https://www.tandfonline.com/doi/abs/10.1080/01621459.1927.10502953)
+- Edwin B. Wilson. "Probable Inference, the Law of Succession, and Statistical Inference." JASA (1927). [publisher page](https://www.tandfonline.com/doi/abs/10.1080/01621459.1927.10502953)
 - J. Sobel, D. Friedman. "An Introduction to Reflection-Oriented Programming." (1996).
-- Model Context Protocol (MCP) Security Best Practices (rev 2025-06-18): [modelcontextprotocol.io/.../security\_best\_practices](https://modelcontextprotocol.io/specification/2025-06-18/basic/security_best_practices)
-- Model Context Protocol (MCP) Authorization (rev 2025-06-18): [modelcontextprotocol.io/.../authorization](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization)
+- Model Context Protocol (MCP) Security Best Practices (rev 2025-06-18): [spec](https://modelcontextprotocol.io/specification/2025-06-18/basic/security_best_practices)
+- Model Context Protocol (MCP) Authorization (rev 2025-06-18): [spec](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization)
+- Inspektor Gadget. "ig-mcp-server: MCP server for eBPF-powered observability." (2026). [repo](https://github.com/inspektor-gadget/ig-mcp-server)
+- AKS Engineering Blog. "Observe Smarter: Leveraging Real-Time Insights via the AKS-MCP Server." (2025). [article](https://blog.aks.azure.com/2025/08/20/real-time-observability-in-aks-mcp-server)
 
 ### Incident Sources
 
-- EDAMAME Posture (software): [github.com/edamametechnologies/edamame\_posture](https://github.com/edamametechnologies/edamame_posture)
-- OpenClaw security advisories: [github.com/openclaw/openclaw/security/advisories](https://github.com/openclaw/openclaw/security/advisories)
-- OpenClaw issue #9627 (config secret sprawl): [github.com/openclaw/openclaw/issues/9627](https://github.com/openclaw/openclaw/issues/9627)
+- EDAMAME Posture (software): [repo](https://github.com/edamametechnologies/edamame_posture)
+- OpenClaw security advisories: [advisories](https://github.com/openclaw/openclaw/security/advisories)
+- OpenClaw issue #9627 (config secret sprawl): [issue](https://github.com/openclaw/openclaw/issues/9627)
 - CVE-2026-25253 (NVD): [nvd.nist.gov/vuln/detail/CVE-2026-25253](https://nvd.nist.gov/vuln/detail/CVE-2026-25253)
 - CVE-2026-24763 (OpenCVE): [app.opencve.io/cve/CVE-2026-24763](https://app.opencve.io/cve/CVE-2026-24763)
-- SecurityScorecard STRIKE exposure research (Moltbots): [securityscorecard.com/blog/...](https://securityscorecard.com/blog/beyond-the-hype-moltbots-real-risk-is-exposed-infrastructure-not-ai-superintelligence/)
+- SecurityScorecard STRIKE exposure research (Moltbots): [article](https://securityscorecard.com/blog/beyond-the-hype-moltbots-real-risk-is-exposed-infrastructure-not-ai-superintelligence/)
 - declawed.io exposed instances dashboard: [declawed.io](https://declawed.io/)
-- VirusTotal on weaponized agent skills (ClawHub): [blog.virustotal.com/2026/02/...](https://blog.virustotal.com/2026/02/from-automation-to-infection-how.html)
-- Palo Alto Networks Unit 42 (memory poisoning): [unit42.paloaltonetworks.com/...](https://unit42.paloaltonetworks.com/indirect-prompt-injection-poisons-ai-longterm-memory/)
+- VirusTotal on weaponized agent skills (ClawHub): [article](https://blog.virustotal.com/2026/02/from-automation-to-infection-how.html)
+- Palo Alto Networks Unit 42 (memory poisoning): [article](https://unit42.paloaltonetworks.com/indirect-prompt-injection-poisons-ai-longterm-memory/)

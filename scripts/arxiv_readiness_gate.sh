@@ -7,22 +7,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-OPENCLAW_DIR="$REPO_DIR/../openclaw_security"
+LOCAL_SUMMARY_DEFAULT="$REPO_DIR/artifacts/live-paper-summary.json"
+LOCAL_MANIFEST_DEFAULT="$REPO_DIR/artifacts/live-paper-manifest.json"
 
-SUMMARY="${1:-$OPENCLAW_DIR/artifacts/live-paper-summary.json}"
-MANIFEST="${2:-$OPENCLAW_DIR/artifacts/live-paper-manifest.json}"
+SUMMARY="${1:-$LOCAL_SUMMARY_DEFAULT}"
+MANIFEST="${2:-$LOCAL_MANIFEST_DEFAULT}"
 REPORT_MD="${3:-$REPO_DIR/artifacts/arxiv-readiness-scorecard.md}"
 REPORT_JSON="${4:-$REPO_DIR/artifacts/arxiv-readiness-scorecard.json}"
 ENFORCE="${ENFORCE_ARXIV_GATE:-false}"
-SUMMARY_ALT="$OPENCLAW_DIR/artifacts/live-paper-new-summary.json"
-MANIFEST_ALT="$OPENCLAW_DIR/artifacts/live-paper-new-manifest.json"
-
-if [ "$SUMMARY" = "$OPENCLAW_DIR/artifacts/live-paper-summary.json" ] && [ ! -f "$SUMMARY" ] && [ -f "$SUMMARY_ALT" ]; then
-    SUMMARY="$SUMMARY_ALT"
-fi
-if [ "$MANIFEST" = "$OPENCLAW_DIR/artifacts/live-paper-manifest.json" ] && [ ! -f "$MANIFEST" ] && [ -f "$MANIFEST_ALT" ]; then
-    MANIFEST="$MANIFEST_ALT"
-fi
 
 required_files=("$SUMMARY" "$MANIFEST")
 for file in "${required_files[@]}"; do

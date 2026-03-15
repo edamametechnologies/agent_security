@@ -19,19 +19,10 @@ BUNDLE_DIR="$REPO_DIR/artifacts/paper-bundle"
 SRC="$BUNDLE_DIR/WHITEPAPER_GENERATED.md"
 FIG_GEN="$PAPER_DIR/generate_figures.py"
 SOURCE_DRAFT="$PAPER_DIR/arxiv_draft.md"
-SOURCE_SOUNDNESS="$REPO_DIR/docs/SOUNDNESS_ANALYSIS_2026-02-18.md"
-OPENCLAW_DIR="$REPO_DIR/../openclaw_security"
-LIVE_SUMMARY="${PAPER_SUMMARY:-$OPENCLAW_DIR/artifacts/live-paper-summary.json}"
-LIVE_MANIFEST="${PAPER_MANIFEST:-$OPENCLAW_DIR/artifacts/live-paper-manifest.json}"
-LIVE_SUMMARY_ALT="$OPENCLAW_DIR/artifacts/live-paper-new-summary.json"
-LIVE_MANIFEST_ALT="$OPENCLAW_DIR/artifacts/live-paper-new-manifest.json"
-
-if [ ! -f "$LIVE_SUMMARY" ] && [ -f "$LIVE_SUMMARY_ALT" ]; then
-    LIVE_SUMMARY="$LIVE_SUMMARY_ALT"
-fi
-if [ ! -f "$LIVE_MANIFEST" ] && [ -f "$LIVE_MANIFEST_ALT" ]; then
-    LIVE_MANIFEST="$LIVE_MANIFEST_ALT"
-fi
+SOURCE_SUPPORTING_EVIDENCE="${PAPER_SUPPORTING_EVIDENCE:-}"
+LOCAL_SUMMARY="$REPO_DIR/artifacts/live-paper-summary.json"
+LOCAL_MANIFEST="$REPO_DIR/artifacts/live-paper-manifest.json"
+LOCAL_RESULTS="$REPO_DIR/artifacts/live-paper-results.ndjson"
 
 RUN_DEMO=false
 for arg in "$@"; do
@@ -40,14 +31,143 @@ for arg in "$@"; do
     esac
 done
 
+sync_canonical_artifact() {
+    local source="$1"
+    local dest="$2"
+    local label="$3"
+
+    if [ ! -f "$source" ]; then
+        return
+    fi
+
+    mkdir -p "$(dirname "$dest")"
+    if [ "$source" = "$dest" ]; then
+        echo "  -> $label ($(basename "$dest"), already canonical)"
+        return
+    fi
+
+    if [ -f "$dest" ] && cmp -s "$source" "$dest"; then
+        echo "  -> $label ($(basename "$dest"), unchanged)"
+        return
+    fi
+
+    cp "$source" "$dest"
+    echo "  -> $label ($(basename "$dest"))"
+}
+
+choose_latest_manifest() {
+    python3 - "$@" <<'PY'
+import json
+import os
+import re
+import sys
+
+best_path = None
+best_key = None
+for path in sys.argv[1:]:
+    if not path or not os.path.isfile(path):
+        continue
+    run_id = ""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            run_id = str(json.load(handle).get("run_id", ""))
+    except Exception:
+        pass
+    match = re.search(r"run-live-(\d{8}T\d{6}Z)-", run_id)
+    if match:
+        key = (2, match.group(1), os.path.getmtime(path))
+    else:
+        key = (1, "", os.path.getmtime(path))
+    if best_key is None or key > best_key:
+        best_key = key
+        best_path = path
+if best_path:
+    print(best_path)
+PY
+}
+
+choose_latest_file() {
+    python3 - "$@" <<'PY'
+import os
+import sys
+
+best_path = None
+best_mtime = None
+for path in sys.argv[1:]:
+    if not path or not os.path.isfile(path):
+        continue
+    mtime = os.path.getmtime(path)
+    if best_mtime is None or mtime > best_mtime:
+        best_mtime = mtime
+        best_path = path
+if best_path:
+    print(best_path)
+PY
+}
+
+shopt -s nullglob
+MANIFEST_CANDIDATES=("$LOCAL_MANIFEST")
+SUMMARY_CANDIDATES=("$LOCAL_SUMMARY")
+RESULTS_CANDIDATES=("$LOCAL_RESULTS")
+shopt -u nullglob
+
+SOURCE_MANIFEST="${PAPER_MANIFEST:-}"
+if [ -z "$SOURCE_MANIFEST" ]; then
+    SOURCE_MANIFEST="$(choose_latest_manifest "${MANIFEST_CANDIDATES[@]}")"
+fi
+
+MANIFEST_PREFIX=""
+if [ -n "$SOURCE_MANIFEST" ] && [[ "$SOURCE_MANIFEST" == *-manifest.json ]]; then
+    MANIFEST_PREFIX="${SOURCE_MANIFEST%-manifest.json}"
+fi
+
+SOURCE_SUMMARY="${PAPER_SUMMARY:-}"
+if [ -z "$SOURCE_SUMMARY" ] && [ -n "$MANIFEST_PREFIX" ] && [ -f "${MANIFEST_PREFIX}-summary.json" ]; then
+    SOURCE_SUMMARY="${MANIFEST_PREFIX}-summary.json"
+fi
+if [ -z "$SOURCE_SUMMARY" ]; then
+    SOURCE_SUMMARY="$(choose_latest_file "${SUMMARY_CANDIDATES[@]}")"
+fi
+
+SOURCE_RESULTS="${PAPER_RESULTS:-}"
+if [ -z "$SOURCE_RESULTS" ] && [ -n "$MANIFEST_PREFIX" ] && [ -f "${MANIFEST_PREFIX}-results.ndjson" ]; then
+    SOURCE_RESULTS="${MANIFEST_PREFIX}-results.ndjson"
+fi
+if [ -z "$SOURCE_RESULTS" ]; then
+    SOURCE_RESULTS="$(choose_latest_file "${RESULTS_CANDIDATES[@]}")"
+fi
+
+echo "Syncing canonical live artifacts into agent_security..."
+sync_canonical_artifact "$SOURCE_SUMMARY" "$LOCAL_SUMMARY" "summary"
+sync_canonical_artifact "$SOURCE_MANIFEST" "$LOCAL_MANIFEST" "manifest"
+sync_canonical_artifact "$SOURCE_RESULTS" "$LOCAL_RESULTS" "results"
+echo ""
+
+LIVE_SUMMARY="$LOCAL_SUMMARY"
+LIVE_MANIFEST="$LOCAL_MANIFEST"
+if [ ! -f "$LIVE_SUMMARY" ]; then
+    LIVE_SUMMARY="$SOURCE_SUMMARY"
+fi
+if [ ! -f "$LIVE_MANIFEST" ]; then
+    LIVE_MANIFEST="$SOURCE_MANIFEST"
+fi
+
 if [ -f "$SOURCE_DRAFT" ] && [ -f "$LIVE_SUMMARY" ] && [ -f "$LIVE_MANIFEST" ]; then
     echo "Refreshing paper bundle markdown from $SOURCE_DRAFT..."
-    "$SCRIPT_DIR/build_paper_bundle.sh" \
-        "$LIVE_SUMMARY" \
-        "$LIVE_MANIFEST" \
-        "$SOURCE_DRAFT" \
-        "$SOURCE_SOUNDNESS" \
-        "$BUNDLE_DIR"
+    if [ -n "$SOURCE_SUPPORTING_EVIDENCE" ]; then
+        "$SCRIPT_DIR/build_paper_bundle.sh" \
+            "$LIVE_SUMMARY" \
+            "$LIVE_MANIFEST" \
+            "$SOURCE_DRAFT" \
+            "$SOURCE_SUPPORTING_EVIDENCE" \
+            "$BUNDLE_DIR"
+    else
+        "$SCRIPT_DIR/build_paper_bundle.sh" \
+            "$LIVE_SUMMARY" \
+            "$LIVE_MANIFEST" \
+            "$SOURCE_DRAFT" \
+            "$BUNDLE_DIR"
+    fi
     echo ""
 fi
 
@@ -91,6 +211,8 @@ popd >/dev/null
 
 pushd "$BUNDLE_DIR" >/dev/null
 
+BUILD_LOG="WHITEPAPER_GENERATED.build.log"
+
 echo "Generating TeX..."
 pandoc "WHITEPAPER_GENERATED.md" -o "WHITEPAPER_GENERATED.tex" --standalone \
     --lua-filter="$PAPER_DIR/$SVG_FILTER" \
@@ -101,9 +223,28 @@ echo "Generating PDF (vector SVG via tectonic)..."
 pandoc "WHITEPAPER_GENERATED.md" -o "WHITEPAPER_GENERATED.pdf" \
     --pdf-engine=tectonic \
     --lua-filter="$PAPER_DIR/$SVG_FILTER" \
-    --resource-path="$PAPER_DIR" 2>&1 \
-    | grep -v "^warning:" || true
+    --resource-path="$PAPER_DIR" 2>&1 | tee "$BUILD_LOG"
+python3 - "$BUILD_LOG" <<'PY'
+import sys
+
+log_path = sys.argv[1]
+text = open(log_path, encoding="utf-8", errors="replace").read()
+issues = [
+    needle
+    for needle in (
+        "Overfull \\hbox",
+        "Overfull \\vbox",
+        "Float too large for page",
+    )
+    if needle in text
+]
+if issues:
+    raise SystemExit(
+        "PDF layout warnings detected in build log: " + ", ".join(issues)
+    )
+PY
 echo "  -> WHITEPAPER_GENERATED.pdf ($(wc -c < "WHITEPAPER_GENERATED.pdf" | tr -d ' ') bytes)"
+echo "  -> $BUILD_LOG ($(wc -c < "$BUILD_LOG" | tr -d ' ') bytes)"
 
 popd >/dev/null
 
@@ -112,8 +253,7 @@ echo "Whitepaper formats regenerated from WHITEPAPER_GENERATED.md."
 
 if [ "$RUN_DEMO" = true ]; then
     echo ""
-    echo "Demo video recording is handled by openclaw_security:"
-    echo "  cd ../openclaw_security && ./scripts/capture_demo_terminal_mp4.sh"
+    echo "Demo video recording requires a configured Lima VM environment."
 fi
 
 echo ""
