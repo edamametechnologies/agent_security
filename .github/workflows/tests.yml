@@ -47,9 +47,20 @@ jobs:
           pip3 install --break-system-packages matplotlib 2>/dev/null || pip3 install matplotlib
 
       - name: Reproduce results (artifact-level)
+        shell: bash
         run: |
+          cd "${GITHUB_WORKSPACE:-.}"
           chmod +x scripts/*.sh
-          bash scripts/reproduce_results.sh
+          SCRIPT_DIR="$(pwd)/scripts"
+          REPO_DIR="$(pwd)"
+          RESULTS="$REPO_DIR/artifacts/live-paper-results.ndjson"
+          SUMMARY="$REPO_DIR/artifacts/live-paper-summary.json"
+          MANIFEST="$REPO_DIR/artifacts/live-paper-manifest.json"
+          bash "$SCRIPT_DIR/summarize_results.sh" --input "$RESULTS" --output "$SUMMARY"
+          PAPER_RESULTS="$RESULTS" PAPER_SUMMARY="$SUMMARY" PAPER_MANIFEST="$MANIFEST" \
+            bash "$SCRIPT_DIR/regen_paper.sh"
+          bash "$SCRIPT_DIR/arxiv_readiness_gate.sh" "$SUMMARY" "$MANIFEST"
+          bash "$SCRIPT_DIR/preflight_publication.sh" "$SUMMARY" "$MANIFEST"
 
       - name: Slack alert on failure
         if: failure()
