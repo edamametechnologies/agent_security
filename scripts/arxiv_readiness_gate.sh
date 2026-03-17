@@ -28,30 +28,30 @@ mkdir -p "$(dirname "$REPORT_MD")" "$(dirname "$REPORT_JSON")"
 
 jq -n \
   --arg generated_at "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-  --argjson summary "$(jq '.' "$SUMMARY")" \
-  --argjson manifest "$(jq '.' "$MANIFEST")" \
+  --slurpfile summary "$SUMMARY" \
+  --slurpfile manifest "$MANIFEST" \
   '
-  ($manifest.mode // "unknown") as $mode
-  | ($summary.total_runs // 0) as $total_runs
-  | ($summary.precision_ci95.low // null) as $precision_ci_low
-  | ($summary.recall_ci95.low // null) as $recall_ci_low
-  | ($summary.stability.seeds_evaluated // 0) as $seeds
-  | ($summary.stability.recall_stddev // null) as $recall_stddev
-  | ($summary.precision // null) as $precision
-  | ($summary.recall // null) as $recall
-  | ($manifest.benchmark_mode // "unknown") as $benchmark_mode
-  | ($manifest.counts.total_planned_runs // (($manifest.iterations // 0) * ($manifest.scenario_count // 0))) as $planned_runs
-  | ($manifest.counts.valid_runs // $planned_runs) as $valid_runs
-  | ($manifest.counts.skipped_runs // 0) as $skipped_runs
+  ($manifest[0].mode // "unknown") as $mode
+  | ($summary[0].total_runs // 0) as $total_runs
+  | ($summary[0].precision_ci95.low // null) as $precision_ci_low
+  | ($summary[0].recall_ci95.low // null) as $recall_ci_low
+  | ($summary[0].stability.seeds_evaluated // 0) as $seeds
+  | ($summary[0].stability.recall_stddev // null) as $recall_stddev
+  | ($summary[0].precision // null) as $precision
+  | ($summary[0].recall // null) as $recall
+  | ($manifest[0].benchmark_mode // "unknown") as $benchmark_mode
+  | ($manifest[0].counts.total_planned_runs // (($manifest[0].iterations // 0) * ($manifest[0].scenario_count // 0))) as $planned_runs
+  | ($manifest[0].counts.valid_runs // $planned_runs) as $valid_runs
+  | ($manifest[0].counts.skipped_runs // 0) as $skipped_runs
   | (if $planned_runs > 0 then ($skipped_runs / $planned_runs) else null end) as $skipped_ratio
-  | ($manifest.scenario_count // 0) as $scenario_count
-  | (($manifest.runs // []) | map(.scenario_id) | unique | length) as $covered_scenarios
+  | ($manifest[0].scenario_count // 0) as $scenario_count
+  | (($manifest[0].runs // []) | map(.scenario_id) | unique | length) as $covered_scenarios
   | (if $scenario_count > 0 then ($covered_scenarios / $scenario_count) else null end) as $scenario_coverage_ratio
-  | ($manifest.group_count // 0) as $group_count
-  | (($manifest.runs // []) | map(.group_id) | unique | length) as $covered_groups
+  | ($manifest[0].group_count // 0) as $group_count
+  | (($manifest[0].runs // []) | map(.group_id) | unique | length) as $covered_groups
   | (if $group_count > 0 then ($covered_groups / $group_count) else null end) as $group_coverage_ratio
-  | (($summary.categories // []) | length) as $category_count
-  | (($summary.by_benchmark_mode // []) | map(select((.benchmark_mode // "unknown") == "unknown")) | length) as $unknown_benchmark_rows
+  | (($summary[0].categories // []) | length) as $category_count
+  | (($summary[0].by_benchmark_mode // []) | map(select((.benchmark_mode // "unknown") == "unknown")) | length) as $unknown_benchmark_rows
   | [
       {
         id: "live_mode",
@@ -64,8 +64,8 @@ jq -n \
       {
         id: "reproducibility_manifest",
         description: "Manifest includes git SHA and scenario-set hash",
-        passed: (($manifest.git_sha != "unknown") and ($manifest.scenario_set_version != "unknown")),
-        observed: {git_sha: $manifest.git_sha, scenario_set_version: $manifest.scenario_set_version},
+        passed: (($manifest[0].git_sha != "unknown") and ($manifest[0].scenario_set_version != "unknown")),
+        observed: {git_sha: $manifest[0].git_sha, scenario_set_version: $manifest[0].scenario_set_version},
         threshold: "git_sha != unknown AND scenario_set_version != unknown",
         severity: "high"
       },
@@ -189,7 +189,7 @@ jq -n \
         category_count: $category_count,
         unknown_benchmark_rows: $unknown_benchmark_rows,
         manifest_valid_runs: $valid_runs,
-        git_sha: $manifest.git_sha
+        git_sha: $manifest[0].git_sha
       },
       criteria: $criteria,
       stats: {
