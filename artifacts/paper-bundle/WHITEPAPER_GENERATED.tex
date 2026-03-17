@@ -123,17 +123,17 @@ Agents}\label{a-practical-two-plane-approach-for-openclaw-class-agents}
 
 Authors: Frank Lyonnet, Antoine Clerget\\
 Status: arXiv draft (not submitted)\\
-Version: 2026-03-13
+Version: 2026-03-17
 
 \subsection{Abstract}\label{abstract}
 
 Tool-using AI agents expose a runtime security gap: pre-install scanning
 and configuration hardening are necessary, but they cannot fully
 characterize behavior that emerges during execution (e.g., indirect
-prompt injection and tool poisoning). We present a two-plane security
-model that correlates reasoning-plane observations (independently read
-session transcripts) with system-plane telemetry to detect
-intent-behavior divergence.
+prompt injection and tool poisoning). To reduce that residual gap, we
+present a two-plane security model that correlates reasoning-plane
+observations (independently read session transcripts) with system-plane
+telemetry to detect intent-behavior divergence.
 
 The contribution is architectural rather than a claim of universal
 prevention. EDAMAME accepts agent-tagged behavioral-model slices from
@@ -143,24 +143,24 @@ process-attributed host telemetry and model-independent guardrails. The
 same control loop supports explicit behavioral slices
 (\texttt{upsert\_behavioral\_model}) and raw-session ingest
 (\texttt{upsert\_behavioral\_model\_from\_raw\_sessions}) for
-workstation paths such as Cursor.
+workstation paths such as Cursor and Claude Code.
 
-The quantitative result in this draft is narrower than a full end-to-end
-agent evaluation. BadAgentUse uses explicit behavioral-model slice
-injection to exercise EDAMAME's downstream correlation loop under
-accelerated benchmark cadence, while end-to-end transcript-publication
-paths are validated separately. On the current reproducible branch
-snapshot (468 valid runs across 10 seeds, with skipped runs tracked
-separately in the readiness scorecard), precision is 1.000 (CI95:
-{[}0.988, 1.000{]}) and recall is 0.911 (CI95: {[}0.876, 0.937{]}).
-Median detection latency is 51.6 s (p95: 66.9 s). These trace-backed
-results support the feasibility of the correlation loop as an
-early-warning mechanism, while keeping three limitations explicit:
-reactive latency, residual adversarial-evasion misses dominated by
-explicitly versioned \texttt{DESIGNED\_MISS} living-off-the-land
-scenarios that remain in the recall denominator, plus one remaining
-non-designed miss in network-intent-correlation, and living-off-the-land
-behavior that stays within allowed process/destination pairs.
+We present a quantitative result that is narrower than a full end-to-end
+agent evaluation. These snapshot results support the feasibility of the
+correlation loop as an early-warning mechanism. BadAgentUse uses
+explicit behavioral-model slice injection to exercise EDAMAME's
+downstream correlation loop under accelerated benchmark cadence, while
+end-to-end transcript-publication paths are validated separately. On the
+current reproducible branch snapshot (468 valid runs across 10 seeds,
+with skipped runs tracked separately in the readiness scorecard),
+precision is 1.000 (CI95: {[}0.988, 1.000{]}) and recall is 0.911 (CI95:
+{[}0.876, 0.937{]}). Median detection latency is 51.6 s (p95: 66.9 s).
+We keep three limitations explicit: reactive latency; residual
+adversarial-evasion misses dominated by explicitly versioned
+\texttt{DESIGNED\_MISS} living-off-the-land scenarios that remain in the
+recall denominator, plus one remaining non-designed miss in
+network-intent-correlation; and living-off-the-land behavior that stays
+within allowed process/destination pairs.
 
 \subsection{Keywords}\label{keywords}
 
@@ -176,15 +176,16 @@ actions, and persistent memory updates. Risk therefore depends on what
 the agent actually does at runtime, not only on what is statically
 configured before runtime.
 
-A recent publicly discussed incident involving Meta security leadership
-and an OpenClaw deployment that reportedly executed unintended
-mailbox-deletion actions illustrates the practical problem: loss of
-control can happen during normal runtime, even in technically
-sophisticated environments. Our model targets that
+A recent publicly discussed incident involving a Meta AI security
+researcher and an OpenClaw deployment that reportedly executed
+unintended mailbox-deletion actions (Bort, 2026) illustrates the
+practical problem: loss of control can happen during normal runtime,
+even in technically sophisticated environments. Our model targets that
 runtime-loss-of-control phase by providing independent host-side
-observation and divergence alerts. It does not replace authorization
-design or pre-action approval gates; if broad destructive permissions
-are already granted, prevention still depends on those controls.
+observation and divergence alerts. However, it does not replace
+authorization design or pre-action approval gates; if broad destructive
+permissions are already granted, prevention still depends on those
+controls.
 
 We characterize the problem in terms of three \textbf{control strata} to
 avoid terminology collision with our model's two planes:
@@ -221,16 +222,16 @@ This paper addresses the S3 gap with a two-plane model: compare what the
 reasoning plane declares with what the system plane observes on the host
 (defined in Section 3). The approach highlights a structural opportunity
 for security tooling vendors (here, EDAMAME Posture) and AI platform
-providers (here, OpenClaw and Cursor) to collaborate through MCP: the
-security tool provides system-plane ground truth that no AI framework
-includes natively, while the AI platform provides the runtime
-observation surface (session transcripts, memory, tool invocation
-history) that no external monitor can access alone. Neither plane is
-sufficient in isolation; the two-plane correlation is the security
-primitive. By design, this first-generation rule set has a blind spot
-for living-off-the-land behavior when both process and destination are
-already authorized; we surface that limitation explicitly in Sections 7
-and 9.
+providers (here, OpenClaw, Cursor, and Claude Code) to collaborate
+through MCP: the security tool provides system-plane ground truth that
+no AI framework includes natively, while the AI platform provides the
+runtime observation surface (session transcripts, memory, tool
+invocation history) that no external monitor can access alone. Neither
+plane is sufficient in isolation; the two-plane correlation is the
+necessary security primitive. By design, this first-generation rule set
+has a blind spot for living-off-the-land behavior when both process and
+destination are already authorized; we surface that limitation
+explicitly in Sections 7 and 9.
 
 Throughout the paper, we distinguish between what is implemented in the
 reference runtime, what is validated by integration tests, and what is
@@ -575,11 +576,11 @@ system-plane telemetry correlation, and emits divergence when observed
 behavior is not explained by declared intent. In the deployed system,
 the behavioral model consumed by the divergence engine can be a merged
 window assembled from multiple agent-tagged contributors (for example
-OpenClaw plus Cursor) rather than a single producer. Producer modes are
-additive: OpenClaw commonly uses the prebuilt-window publication path,
-while workstation integrations such as Cursor can forward raw reasoning
-sessions so EDAMAME generates the contributor slice internally before
-merge.
+OpenClaw plus Cursor and Claude Code) rather than a single producer.
+Producer modes are additive: OpenClaw commonly uses the prebuilt-window
+publication path, while workstation integrations such as Cursor and
+Claude Code can forward raw reasoning sessions so EDAMAME generates the
+contributor slice internally before merge.
 
 The operational cadence is shared-timer-driven: the extrapolator cron
 publishes behavioral models on a fixed interval, while EDAMAME evaluates
@@ -672,16 +673,17 @@ II).} This detail matters because it changes the trust model of the
 reasoning plane. In the reference implementation, the reasoning plane is
 not self-declared. For OpenClaw, a separate monitor session reads other
 sessions' tool calls and reasoning via the platform's
-\texttt{sessions\_list} and \texttt{sessions\_history} APIs. For Cursor,
-a parallel publisher emits the same behavioral-window schema with its
-own \texttt{agent\_type} and \texttt{agent\_instance\_id}. EDAMAME
-stores these slices, preserves contributor attribution, and merges them
-before correlation. This means an agent cannot retroactively edit or
-suppress evidence of its tool calls when the transcript or observer
-surface is platform-controlled. The reasoning plane therefore shifts
-from trust-dependent self-declaration to an independently verifiable
-record, though transcript integrity still depends on the platform (see
-Section 9, Limitations).
+\texttt{sessions\_list} and \texttt{sessions\_history} APIs. For Cursor
+and Claude Code, parallel publishers emit the same behavioral-window
+schema with their own \texttt{agent\_type} and
+\texttt{agent\_instance\_id}. EDAMAME stores these slices, preserves
+contributor attribution, and merges them before correlation. This means
+an agent cannot retroactively edit or suppress evidence of its tool
+calls when the transcript or observer surface is platform-controlled.
+The reasoning plane therefore shifts from trust-dependent
+self-declaration to an independently verifiable record, though
+transcript integrity still depends on the platform (see Section 9,
+Limitations).
 
 \subsubsection{3.2 System-Plane
 Observations}\label{system-plane-observations}
@@ -782,10 +784,10 @@ operationally portable:
   pre-action and post-action checks composable.
 \item
   \textbf{Framework portability.} MCP-facing tools can be consumed by
-  OpenClaw, Cursor, other coding agents, and other MCP-compatible
-  clients with minimal glue code. In the deployed contract, each
-  producer tags its slice with agent identity and EDAMAME performs the
-  merge centrally.
+  OpenClaw, Cursor, Claude Code, other coding agents, and other
+  MCP-compatible clients with minimal glue code. In the deployed
+  contract, each producer tags its slice with agent identity and EDAMAME
+  performs the merge centrally.
 \end{enumerate}
 
 As positioned in Section 2.3, exposing continual process-attributed host
@@ -1807,11 +1809,11 @@ recorded in the manifest, including score-kick flushing and preservation
 of benchmark-provided \texttt{ingested\_at} timestamps for slices tagged
 \texttt{benchmark}; these choices reduce waiting and verdict-latency
 overhead but do not change scenario labels, confusion-matrix accounting,
-or post-hoc scoring. Cursor uses the raw-session producer mode used by
-workstation integrations and is validated separately rather than as a
-second quantitative cohort in this draft. The snapshot below is the
-completed live sweep for the current scenario set, not a partial
-provisional subset.}
+or post-hoc scoring. Cursor and Claude Code use the raw-session producer
+mode used by workstation integrations and are validated separately
+rather than as a second quantitative cohort in this draft. The snapshot
+below is the completed live sweep for the current scenario set, not a
+partial provisional subset.}
 
 \textbf{Snapshot metadata:}
 
@@ -2872,6 +2874,10 @@ Specifications}\label{standards-and-specifications}
 \item
   OpenClaw issue \#9627 (config secret sprawl):
   \href{https://github.com/openclaw/openclaw/issues/9627}{issue}
+\item
+  Julie Bort. ``A Meta AI security researcher said an OpenClaw agent ran
+  amok on her inbox.'' TechCrunch (2026).
+  \href{https://techcrunch.com/2026/02/23/a-meta-ai-security-researcher-said-an-openclaw-agent-ran-amok-on-her-inbox/}{article}
 \item
   CVE-2026-25253 (NVD):
   \href{https://nvd.nist.gov/vuln/detail/CVE-2026-25253}{nvd.nist.gov/vuln/detail/CVE-2026-25253}

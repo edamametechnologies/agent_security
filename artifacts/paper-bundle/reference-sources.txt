@@ -56,6 +56,7 @@
 - EDAMAME Posture (software): [repo](https://github.com/edamametechnologies/edamame_posture)
 - OpenClaw security advisories: [advisories](https://github.com/openclaw/openclaw/security/advisories)
 - OpenClaw issue #9627 (config secret sprawl): [issue](https://github.com/openclaw/openclaw/issues/9627)
+- Julie Bort. "A Meta AI security researcher said an OpenClaw agent ran amok on her inbox." TechCrunch (2026). [article](https://techcrunch.com/2026/02/23/a-meta-ai-security-researcher-said-an-openclaw-agent-ran-amok-on-her-inbox/)
 - CVE-2026-25253 (NVD): [nvd.nist.gov/vuln/detail/CVE-2026-25253](https://nvd.nist.gov/vuln/detail/CVE-2026-25253)
 - CVE-2026-24763 (OpenCVE): [app.opencve.io/cve/CVE-2026-24763](https://app.opencve.io/cve/CVE-2026-24763)
 - SecurityScorecard STRIKE exposure research (Moltbots): [article](https://securityscorecard.com/blog/beyond-the-hype-moltbots-real-risk-is-exposed-infrastructure-not-ai-superintelligence/)

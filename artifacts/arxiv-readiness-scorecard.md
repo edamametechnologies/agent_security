@@ -1,6 +1,6 @@
 # ArXiv Readiness Scorecard
 
-- Generated at: 2026-03-14T17:48:27Z
+- Generated at: 2026-03-17T14:04:39Z
 - Verdict: **GO**
 - Source: live (468 runs, 10 seeds)
 - Passed: 14/14
