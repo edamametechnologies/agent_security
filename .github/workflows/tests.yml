@@ -12,6 +12,9 @@ concurrency:
 
 permissions: read-all
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   validate:
     name: Reproduce and validate
@@ -22,17 +25,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install paper tools (pandoc + tectonic)
+      - name: Install paper tools (pandoc, tectonic, jq)
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq pandoc librsvg2-bin
+          sudo apt-get install -y -qq pandoc librsvg2-bin jq
           mkdir -p "$HOME/.local/bin"
-          curl --proto '=https' --tlsv1.2 -fsSL https://drop-sh.fullyjustified.net | sh
-          mv -f tectonic "$HOME/.local/bin/tectonic" 2>/dev/null || true
+          TECTONIC_VER="0.15.0"
+          curl -sL "https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%40${TECTONIC_VER}/tectonic-${TECTONIC_VER}-x86_64-unknown-linux-gnu.tar.gz" | tar xz -C /tmp
+          TECTONIC_BIN=$(find /tmp -name tectonic -type f 2>/dev/null | head -1)
+          mv "$TECTONIC_BIN" "$HOME/.local/bin/tectonic"
+          chmod +x "$HOME/.local/bin/tectonic"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/.local/bin:$PATH"
           tectonic --version
           pandoc --version
+          jq --version
 
       - name: Install Python and figure deps
         run: |
