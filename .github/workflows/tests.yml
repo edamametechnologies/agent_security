@@ -1,0 +1,59 @@
+name: Paper reproduction and validation
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  validate:
+    name: Reproduce and validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install paper tools (pandoc + tectonic)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq pandoc rsvg-convert
+          mkdir -p "$HOME/.local/bin"
+          curl --proto '=https' --tlsv1.2 -fsSL https://drop-sh.fullyjustified.net | sh
+          mv -f tectonic "$HOME/.local/bin/tectonic" 2>/dev/null || true
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
+          tectonic --version
+          pandoc --version
+
+      - name: Install Python and figure deps
+        run: |
+          sudo apt-get install -y -qq python3 python3-pip
+          pip3 install --break-system-packages matplotlib 2>/dev/null || pip3 install matplotlib
+
+      - name: Reproduce results (artifact-level)
+        run: |
+          chmod +x scripts/*.sh
+          bash scripts/reproduce_results.sh
+
+      - name: Slack alert on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          channel-id: "C072J0U9TH7"
+          slack-message: |
+            *agent_security CI Failed*
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref }}
+            Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        continue-on-error: true
