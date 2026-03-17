@@ -35,8 +35,6 @@ tests/
   lib/
     vm_exec.sh            # Lima VM execution helpers
     mcp_bootstrap.sh      # MCP helper deployment and divergence wrappers
-demo/
-  cli-injection/          # Attack-injection scripts for executive demos
 docs/
   CLAIM_ARTIFACT_INDEX.md # Claim-to-artifact mapping
   LLM_USAGE.md            # LLM usage disclosure

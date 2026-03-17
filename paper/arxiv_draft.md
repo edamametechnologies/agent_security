@@ -1410,7 +1410,9 @@ repository. Key artifact paths:
   evidence bounds
 - `docs/manifest-schema.json`: formal JSON Schema for the run manifest
 - `docs/CLAIM_ARTIFACT_INDEX.md`: canonical claim-to-artifact lineage binding
-- `demo/cli-injection/`: attack-injection scripts used by executive demos
+Attack-injection scripts for executive demos live in the
+[edamame_openclaw](https://github.com/edamametechnologies/edamame_openclaw)
+repository (see also the private `openclaw_security` monorepo).
 
 Canonical run artifacts shipped with this draft:
 
