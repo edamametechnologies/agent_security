@@ -2,6 +2,15 @@
 # build_paper_bundle.sh - Build arXiv companion reproducibility bundle.
 set -euo pipefail
 
+# sha256: use sha256sum on Linux, shasum on macOS
+_sha256() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$@"
+    else
+        shasum -a 256 "$@"
+    fi
+}
+
 SUMMARY="${1:-artifacts/benchmark-summary.json}"
 MANIFEST="${2:-artifacts/run-manifest.json}"
 WHITEPAPER_SOURCE="${3:-paper/arxiv_draft.md}"
@@ -93,7 +102,7 @@ awk '
   refs == 1 { print }
 ' "$WHITEPAPER_SOURCE" > "$OUT_DIR/reference-sources.txt"
 
-refs_checksum=$(shasum -a 256 "$OUT_DIR/reference-sources.txt" | awk "{print \$1}")
+refs_checksum=$(_sha256 "$OUT_DIR/reference-sources.txt" | awk "{print \$1}")
 
 cat > "$OUT_DIR/reference-checksum.txt" <<EOF
 references_sha256=$refs_checksum
@@ -216,10 +225,10 @@ $suggested_repro_cmd
 ## Checksums
 
 \`\`\`
-$(shasum -a 256 "$SUMMARY" | awk -v rp="$REL_SUMMARY" '{print $1 "  " rp}')
-$(shasum -a 256 "$MANIFEST" | awk -v rp="$REL_MANIFEST" '{print $1 "  " rp}')
-$(shasum -a 256 "$WHITEPAPER_SOURCE" | awk -v rp="$REL_WHITEPAPER" '{print $1 "  " rp}')
-$( [ -n "$SUPPORTING_EVIDENCE_SOURCE" ] && [ -f "$SUPPORTING_EVIDENCE_SOURCE" ] && shasum -a 256 "$SUPPORTING_EVIDENCE_SOURCE" | awk -v rp="$(_relpath "$SUPPORTING_EVIDENCE_SOURCE")" '{print $1 "  " rp}' || true )
+$(_sha256 "$SUMMARY" | awk -v rp="$REL_SUMMARY" '{print $1 "  " rp}')
+$(_sha256 "$MANIFEST" | awk -v rp="$REL_MANIFEST" '{print $1 "  " rp}')
+$(_sha256 "$WHITEPAPER_SOURCE" | awk -v rp="$REL_WHITEPAPER" '{print $1 "  " rp}')
+$( [ -n "$SUPPORTING_EVIDENCE_SOURCE" ] && [ -f "$SUPPORTING_EVIDENCE_SOURCE" ] && _sha256 "$SUPPORTING_EVIDENCE_SOURCE" | awk -v rp="$(_relpath "$SUPPORTING_EVIDENCE_SOURCE")" '{print $1 "  " rp}' || true )
 \`\`\`
 EOF
 

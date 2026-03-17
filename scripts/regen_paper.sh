@@ -155,14 +155,14 @@ fi
 if [ -f "$SOURCE_DRAFT" ] && [ -f "$LIVE_SUMMARY" ] && [ -f "$LIVE_MANIFEST" ]; then
     echo "Refreshing paper bundle markdown from $SOURCE_DRAFT..."
     if [ -n "$SOURCE_SUPPORTING_EVIDENCE" ]; then
-        "$SCRIPT_DIR/build_paper_bundle.sh" \
+        bash "$SCRIPT_DIR/build_paper_bundle.sh" \
             "$LIVE_SUMMARY" \
             "$LIVE_MANIFEST" \
             "$SOURCE_DRAFT" \
             "$SOURCE_SUPPORTING_EVIDENCE" \
             "$BUNDLE_DIR"
     else
-        "$SCRIPT_DIR/build_paper_bundle.sh" \
+        bash "$SCRIPT_DIR/build_paper_bundle.sh" \
             "$LIVE_SUMMARY" \
             "$LIVE_MANIFEST" \
             "$SOURCE_DRAFT" \
