@@ -1,3 +1,3 @@
 references_sha256=a5778279f16eea6a2603d31b885647f2c1df075e23f77733da2ce62dba4ec02d
 source_file=paper/arxiv_draft.md
-generated_at_utc=2026-03-17T14:03:18Z
+generated_at_utc=2026-03-17T20:20:49Z

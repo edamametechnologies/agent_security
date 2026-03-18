@@ -1,6 +1,6 @@
 {
   "benchmark": "BadAgentUse",
-  "generated_at_utc": "2026-03-14T13:30:12Z",
+  "generated_at_utc": "2026-03-17T20:20:48Z",
   "total_runs": 468,
   "confusion_matrix": {
     "tp": 317,

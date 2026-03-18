@@ -1,6 +1,6 @@
 # Reproducibility Report
 
-- Generated at: 2026-03-17T14:03:18Z
+- Generated at: 2026-03-17T20:20:49Z
 - Git SHA: aca9156
 - Scenario set version: fa1266a7eb7b2645ecad1b31258ea661710f47bd1cba01ffef5817536a04b4aa
 - Mode: live
@@ -24,8 +24,8 @@
 ## Checksums
 
 ```
-b2887272229e64cadcfc2f91f3086ef4283b7fb844a37aa98dec10ba68d1e26f  artifacts/live-paper-summary.json
+38850c9c3e12b1921ff85941448477a82ca150c745e3818dab0cf1401eb4c96f  artifacts/live-paper-summary.json
 09cc145bdbb3304950447f4c064f18b711e5f9cb564f125a42dc12dd38bb0cc7  artifacts/live-paper-manifest.json
-4d7e08bd393c4b696711a4c45d10d87666bfb28c4e4202df96e47ceb6a457d5e  paper/arxiv_draft.md
+cb19762ef6211dca3d48bb519571b58b274413e7586211552aca60328353c72f  paper/arxiv_draft.md
 
 ```
