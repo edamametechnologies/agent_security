@@ -1,0 +1,182 @@
+"""
+Shared helpers for native UDP probe-based E2E triggers.
+"""
+
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+C_SOURCE = r"""
+#include <signal.h>
+#include <stdlib.h>
+#include <string.h>
+
+#ifdef _WIN32
+#include <winsock2.h>
+#pragma comment(lib, "ws2_32.lib")
+typedef int socklen_t;
+static void usleep_ms(int ms) { Sleep(ms); }
+#else
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <unistd.h>
+static void usleep_ms(int ms) { usleep((useconds_t)ms * 1000U); }
+#endif
+
+static volatile sig_atomic_t keep_running = 1;
+
+static void on_signal(int sig) {
+    (void)sig;
+    keep_running = 0;
+}
+
+int main(int argc, char **argv) {
+    if (argc < 5) {
+        return 2;
+    }
+
+    const char *ip = argv[1];
+    int port = atoi(argv[2]);
+    int interval = atoi(argv[3]);
+    int size = atoi(argv[4]);
+
+    signal(SIGINT, on_signal);
+    signal(SIGTERM, on_signal);
+
+#ifdef _WIN32
+    WSADATA wsa;
+    WSAStartup(MAKEWORD(2,2), &wsa);
+#endif
+
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        return 1;
+    }
+
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((unsigned short)port);
+    if (inet_pton(AF_INET, ip, &addr.sin_addr) != 1) {
+        return 1;
+    }
+    if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        return 1;
+    }
+
+    char *buf = malloc((size_t)size);
+    if (!buf) {
+        return 1;
+    }
+    memset(buf, 'D', (size_t)size);
+
+    while (keep_running) {
+        if (send(sock, buf, (size_t)size, 0) < 0) {
+            break;
+        }
+        usleep_ms(interval);
+    }
+
+#ifdef _WIN32
+    closesocket(sock);
+    WSACleanup();
+#else
+    close(sock);
+#endif
+    free(buf);
+    return 0;
+}
+"""
+
+
+def ensure_state_dir(state_dir: Path) -> None:
+    state_dir.mkdir(parents=True, exist_ok=True)
+
+
+def record_created(state_dir: Path, marker_name: str, path: Path) -> None:
+    marker = state_dir / marker_name
+    existing = set()
+    if marker.exists():
+        existing = {line.strip() for line in marker.read_text("utf-8").splitlines() if line.strip()}
+    existing.add(str(path))
+    marker.write_text("\n".join(sorted(existing)) + "\n", encoding="utf-8")
+
+
+def find_cc() -> str | None:
+    for candidate in ("cc", "gcc", "clang"):
+        try:
+            subprocess.check_call(
+                [candidate, "--version"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return candidate
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            continue
+    return None
+
+
+def compile_udp_probe(state_dir: Path, marker_name: str, binary_name: str) -> Path | None:
+    cc = find_cc()
+    if cc is None:
+        return None
+
+    src = state_dir / f"{binary_name}.c"
+    binary = state_dir / binary_name
+    src.write_text(C_SOURCE, encoding="utf-8")
+    record_created(state_dir, marker_name, src)
+
+    try:
+        subprocess.check_call(
+            [cc, str(src), "-O2", "-o", str(binary)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except subprocess.CalledProcessError:
+        return None
+
+    try:
+        binary.chmod(0o755)
+    except OSError:
+        pass
+    record_created(state_dir, marker_name, binary)
+    return binary
+
+
+def spawn_udp_children(
+    binary: Path,
+    targets: list[tuple[str, int]],
+    interval_ms: int,
+    payload_bytes: int,
+) -> list[subprocess.Popen[bytes]]:
+    children: list[subprocess.Popen[bytes]] = []
+    for ip, port in targets:
+        children.append(
+            subprocess.Popen(
+                [str(binary), ip, str(port), str(interval_ms), str(payload_bytes)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        )
+    return children
+
+
+def terminate_children(children: list[subprocess.Popen[bytes]]) -> None:
+    for proc in children:
+        if proc.poll() is None:
+            proc.terminate()
+
+    for proc in children:
+        if proc.poll() is not None:
+            continue
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+    for proc in children:
+        try:
+            proc.wait(timeout=0.1)
+        except (subprocess.TimeoutExpired, OSError):
+            pass
