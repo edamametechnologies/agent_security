@@ -147,7 +147,7 @@ After regeneration, `artifacts/paper-bundle/` contains:
 | [edamame_openclaw](https://github.com/edamametechnologies/edamame_openclaw) | OpenClaw agent integration package |
 | [edamame_cursor](https://github.com/edamametechnologies/edamame_cursor) | Cursor developer workstation package |
 | [edamame_claude_code](https://github.com/edamametechnologies/edamame_claude_code) | Claude Code developer workstation plugin |
-| [edamame_security](https://github.com/edamametechnologies/edamame_security) | EDAMAME Security desktop/mobile app |
+| [edamame_security](https://github.com/edamametechnologies/edamame_security) | EDAMAME Security desktop/mobile app -- see [AGENTIC.md](https://github.com/edamametechnologies/edamame_security/blob/main/AGENTIC.md) for CVE detection, divergence, and E2E test details |
 | [edamame_posture](https://github.com/edamametechnologies/edamame_posture) | EDAMAME Posture CLI for CI/CD and servers |
 | [edamame_core_api](https://github.com/edamametechnologies/edamame_core_api) | EDAMAME Core public API documentation |
 | [threatmodels](https://github.com/edamametechnologies/threatmodels) | Public security benchmarks and threat models |
