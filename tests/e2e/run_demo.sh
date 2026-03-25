@@ -231,6 +231,7 @@ SCENARIOS=(
   "goal_drift"
   "credential_sprawl"
   "tool_poisoning_effects"
+  "supply_chain_exfil"
 )
 
 log() {

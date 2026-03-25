@@ -26,6 +26,7 @@ PID_FILES = [
     "goal_drift.pid",
     "credential_sprawl.pid",
     "tool_poisoning.pid",
+    "supply_chain_exfil.pid",
 ]
 
 CREATED_MARKERS = [
@@ -37,6 +38,7 @@ CREATED_MARKERS = [
     "memory_poisoning.created",
     "credential_sprawl.created",
     "tool_poisoning.created",
+    "supply_chain_exfil.created",
 ]
 
 

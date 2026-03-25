@@ -24,7 +24,7 @@ Options:
   --loop-rounds                Continue into round 2+ until duration budget or failure.
   --focus MODE                intent | cve | both (default: intent).
                               intent: Claude + OpenClaw + Cursor tests/e2e_inject_intent.sh (in each agent repo)
-                              cve:    demo injectors (8 scenarios: blacklist, CVE, divergence, memory-poisoning, goal-drift, credential-sprawl, tool-poisoning)
+                              cve:    demo injectors (9 scenarios: blacklist, CVE, divergence, memory-poisoning, goal-drift, credential-sprawl, tool-poisoning, supply-chain-exfil)
                               both:   intent suite then CVE suite each round (often >30 min per round;
                                       shorten with --scenario-duration / --divergence-duration).
   --parallel-intent           Run the three intent scripts concurrently (faster, heavier LLM).
@@ -850,7 +850,7 @@ print(f'{found}|{len(active)}|{len(active_with_of)}')
 
 run_cve_suite() {
   local scenario duration rc=0
-  local scenarios=(blacklist_comm cve_token_exfil cve_sandbox_escape divergence memory_poisoning goal_drift credential_sprawl tool_poisoning_effects)
+  local scenarios=(blacklist_comm cve_token_exfil cve_sandbox_escape divergence memory_poisoning goal_drift credential_sprawl tool_poisoning_effects supply_chain_exfil)
   run_injector_cleanup
   if ! ensure_divergence_harness_ready; then
     rc=1

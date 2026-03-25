@@ -33,7 +33,7 @@ simulate real-world attack patterns (network egress, credential access,
 process behavior) while `edamame_cli` verifies that EDAMAME detects and
 classifies the resulting activity.
 
-Eight scenarios, each in `triggers/trigger_<name>.py`:
+Nine scenarios, each in `triggers/trigger_<name>.py`:
 
 | Scenario | Trigger script | Threat model | Detection mechanism |
 |----------|---------------|--------------|---------------------|
@@ -45,13 +45,14 @@ Eight scenarios, each in `triggers/trigger_<name>.py`:
 | `goal_drift` | `trigger_goal_drift.py` | Meta AI researcher incident (runaway agent) | Divergence engine (burst connections > 5 unexplained) |
 | `credential_sprawl` | `trigger_credential_sprawl.py` | OpenClaw #9627 + AMOS infostealer | token_exfiltration (multi-category credential labels) |
 | `tool_poisoning_effects` | `trigger_tool_poisoning_effects.py` | MCPTox tool poisoning (Luo et al., 2025) | token_exfiltration (HTTP POST exfil + sensitive open_files) |
+| `supply_chain_exfil` | `trigger_supply_chain_exfil.py` | [litellm 1.82.8 PyPI compromise](https://github.com/BerriAI/litellm/issues/24512) (March 2026) | credential_harvest (9-category credential + crypto harvest + HTTP POST octet-stream exfil; anomaly-independent) |
 
 ## Orchestration Scripts
 
 ### `run_demo.sh`
 
 Full interactive demo orchestrator. Provisions packages, seeds behavioral
-models with real agent activity, then cycles through all 8 CVE scenarios
+models with real agent activity, then cycles through all 9 CVE scenarios
 with `edamame_cli` baseline capture and recovery verification.
 
 ```bash
@@ -160,6 +161,7 @@ tests/e2e/
     trigger_goal_drift.py
     trigger_credential_sprawl.py
     trigger_tool_poisoning_effects.py
+    trigger_supply_chain_exfil.py
     cleanup.py
   run_demo.sh                      # Full demo orchestrator
   run_e2e_harness.sh               # Automated E2E harness
