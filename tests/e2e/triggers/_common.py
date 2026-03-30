@@ -12,7 +12,7 @@ import os
 import platform
 from pathlib import Path
 
-VALID_AGENT_TYPES = ("openclaw", "cursor", "claude_code")
+VALID_AGENT_TYPES = ("openclaw", "cursor", "claude_code", "claude_desktop")
 DEFAULT_AGENT_TYPE = "openclaw"
 
 

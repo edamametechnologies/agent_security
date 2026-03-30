@@ -53,8 +53,8 @@ Options:
                             pre-scenario baseline after cleanup. Default: 180
   --verify-interval SEC     Poll interval for EDAMAME CLI recovery checks.
                             Default: 10
-  --agent-type NAME         Agent type for trigger scripts: openclaw|cursor|claude_code
-                            Default: openclaw
+  --agent-type NAME         Agent type for trigger scripts; validated against the
+                            supported-agent registry. Default: openclaw
   --skip-provision          Skip package/plugin refresh and use existing installs.
   --skip-pair               Skip OpenClaw app-mediated pairing even if no token is present.
   --skip-agents             Skip Claude/OpenClaw agent prompts.
@@ -92,6 +92,7 @@ EOF
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TRIGGERS_DIR="$ROOT_DIR/triggers"
+SUPPORTED_AGENT_HELPER="$ROOT_DIR/supported_agents.py"
 
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$ROOT_DIR/../../..}"
 ITERATIONS=1
@@ -203,10 +204,11 @@ while (($# > 0)); do
 done
 
 APP_ROOT="${EDAMAME_APP_ROOT:-$ROOT_DIR/../../../edamame_app}"
-CURSOR_REPO="${CURSOR_REPO:-$ROOT_DIR/../../../edamame_cursor}"
-CLAUDE_REPO="${CLAUDE_REPO:-$ROOT_DIR/../../../edamame_claude_code}"
-OPENCLAW_REPO="${OPENCLAW_REPO:-$ROOT_DIR/../../../edamame_openclaw}"
 CLI_REPO="${EDAMAME_CLI_REPO:-$ROOT_DIR/../../../edamame_cli}"
+CURSOR_REPO=""
+CLAUDE_REPO=""
+CLAUDE_DESKTOP_REPO=""
+OPENCLAW_REPO=""
 
 CURSOR_HOME="${HOME}/Library/Application Support/cursor-edamame"
 CLAUDE_HOME="${HOME}/Library/Application Support/claude-code-edamame"
@@ -367,19 +369,65 @@ sync_psk() {
   run_cmd chmod 600 "$destination"
 }
 
+emit_supported_agent_types() {
+  if ! command -v python3 >/dev/null 2>&1 || [[ ! -f "$SUPPORTED_AGENT_HELPER" ]]; then
+    printf '%s\n' "$AGENT_TYPE"
+    return 0
+  fi
+  python3 "$SUPPORTED_AGENT_HELPER" types | python3 - <<'PY'
+import json
+import sys
+
+for agent_type in json.load(sys.stdin):
+    print(agent_type)
+PY
+}
+
+supported_agent_types_display() {
+  python3 "$SUPPORTED_AGENT_HELPER" types | python3 - <<'PY'
+import json
+import sys
+
+print(", ".join(json.load(sys.stdin)))
+PY
+}
+
+validate_supported_agent_type() {
+  local agent_type="$1"
+  python3 "$SUPPORTED_AGENT_HELPER" get-agent --agent-type "$agent_type" >/dev/null 2>&1
+}
+
+resolve_agent_repo() {
+  local agent_type="$1"
+  python3 "$SUPPORTED_AGENT_HELPER" get-agent --agent-type "$agent_type" | python3 - <<'PY'
+import json
+import sys
+
+print(json.load(sys.stdin)["repo_path"])
+PY
+}
+
+load_registry_context() {
+  CURSOR_REPO="$(resolve_agent_repo cursor)"
+  CLAUDE_REPO="$(resolve_agent_repo claude_code)"
+  CLAUDE_DESKTOP_REPO="$(resolve_agent_repo claude_desktop)"
+  OPENCLAW_REPO="$(resolve_agent_repo openclaw)"
+}
+
 cleanup_demo_state() {
   local cleanup_script="$TRIGGERS_DIR/cleanup.py"
   if [[ ! -f "$cleanup_script" ]]; then
     return 0
   fi
   local at
-  for at in openclaw cursor claude_code; do
+  while IFS= read -r at; do
+    [[ -n "$at" ]] || continue
     if [[ "$DRY_RUN" -eq 1 ]]; then
       echo "+ python3 $cleanup_script --agent-type $at"
     else
       python3 "$cleanup_script" --agent-type "$at" >/dev/null 2>&1 || true
     fi
-  done
+  done < <(emit_supported_agent_types)
 }
 
 trap cleanup_demo_state EXIT INT TERM
@@ -393,21 +441,20 @@ validate_inputs() {
   [[ "$COOLDOWN" =~ ^[0-9]+$ ]] || die "--cooldown must be an integer"
   [[ "$VERIFY_TIMEOUT" =~ ^[0-9]+$ ]] || die "--verify-timeout must be an integer"
   [[ "$VERIFY_INTERVAL" =~ ^[0-9]+$ ]] || die "--verify-interval must be an integer"
-  case "$AGENT_TYPE" in
-    openclaw|cursor|claude_code) ;;
-    *)
-      die "--agent-type must be one of: openclaw, cursor, claude_code"
-      ;;
-  esac
 }
 
 check_prereqs() {
-  assert_dir "$CURSOR_REPO"
-  assert_dir "$CLAUDE_REPO"
-  assert_dir "$OPENCLAW_REPO"
+  [[ -f "$SUPPORTED_AGENT_HELPER" ]] || die "Supported-agent helper not found: $SUPPORTED_AGENT_HELPER"
   require_command python3
   require_command node
   require_command curl
+  python3 "$SUPPORTED_AGENT_HELPER" validate || die "Supported-agent registry validation failed."
+  validate_supported_agent_type "$AGENT_TYPE" || \
+    die "--agent-type must be one of: $(supported_agent_types_display)"
+  load_registry_context
+  assert_dir "$CURSOR_REPO"
+  assert_dir "$CLAUDE_REPO"
+  assert_dir "$OPENCLAW_REPO"
   if [[ "$SKIP_EDAMAME_CLI" -eq 0 ]]; then
     resolve_edamame_cli_bin >/dev/null
   fi

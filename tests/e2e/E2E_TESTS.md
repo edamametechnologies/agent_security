@@ -1,12 +1,15 @@
 # Agent Security E2E Test Architecture
 
 End-to-end test infrastructure for validating EDAMAME's two-plane security
-model across the three agent integration packages: OpenClaw, Cursor, and
-Claude Code.
+model across the supported agent integration packages declared in
+`agent_security/supported_agents/index.json`. The current registry includes
+OpenClaw, Cursor, Claude Code, and Claude Desktop.
 
 All E2E tests live in this directory (`agent_security/tests/e2e/`).
 Trigger scripts are parameterized with `--agent-type` so one canonical
-copy covers all three agent platforms.
+copy covers all supported agent platforms. The `supported_agents.py` helper
+resolves repo paths, validates repo-local lifecycle scripts, and drives the
+registry-backed harnesses.
 
 ## Two Test Suites
 
@@ -18,12 +21,14 @@ polling `get_behavioral_model` until predictions appear for every expected
 session key.
 
 Each agent platform has its own intent injection script (genuinely
-different implementations), living in its respective repo:
+different implementations), living in its respective repo. The automated
+harness discovers these entries from the supported-agent registry at runtime:
 
 | Script | Repo | What it does |
 |--------|------|--------------|
 | `tests/e2e_inject_intent.sh` | [edamame_openclaw](https://github.com/edamametechnologies/edamame_openclaw) | Builds OpenClaw-shaped raw session payloads, pushes via `upsert_behavioral_model_from_raw_sessions`, verifies predictions |
 | `tests/e2e_inject_intent.sh` | [edamame_claude_code](https://github.com/edamametechnologies/edamame_claude_code) | Generates three synthetic Claude Code transcripts (API / shell / git), runs extrapolator, polls model |
+| `tests/e2e_inject_intent.sh` | [edamame_claude_desktop](https://github.com/edamametechnologies/edamame_claude_desktop) | Generates synthetic Claude Desktop transcripts, runs extrapolator, polls model |
 | `tests/e2e_inject_intent.sh` | [edamame_cursor](https://github.com/edamametechnologies/edamame_cursor) | Generates synthetic Cursor-format JSONL transcripts, runs `cursor_extrapolator`, polls model |
 
 ### 2. CVE / Divergence E2E (`--focus cve`)
@@ -53,7 +58,9 @@ Nine scenarios, each in `triggers/trigger_<name>.py`:
 
 Full interactive demo orchestrator. Provisions packages, seeds behavioral
 models with real agent activity, then cycles through all 9 CVE scenarios
-with `edamame_cli` baseline capture and recovery verification.
+with `edamame_cli` baseline capture and recovery verification. Repo paths
+for the staged packages are resolved through `supported_agents.py`, so the
+demo follows the same registry metadata as the automated harness.
 
 ```bash
 bash tests/e2e/run_demo.sh \
@@ -74,7 +81,9 @@ Key capabilities:
 ### `run_e2e_harness.sh`
 
 Automated multi-round harness for CI and long-run verification. No
-provisioning; assumes packages are already installed.
+provisioning; assumes packages are already installed. Intent-capable agents,
+repo overrides, and valid `--agent-type` values all come from the
+supported-agent registry.
 
 ```bash
 bash tests/e2e/run_e2e_harness.sh \
@@ -97,12 +106,27 @@ Key capabilities:
 - Structured reporting: `report.jsonl` (one JSON object per round) and
   `SUMMARY.md` rollup
 
+## Supported-Agent Registry
+
+`agent_security/supported_agents/index.json` is the source of truth for:
+
+- Supported `agent_type` values accepted by the E2E harnesses
+- Repo locations and per-agent override environment variables
+- Repo-local install, uninstall, and healthcheck script paths
+- Intent injection scripts and per-agent timeouts
+
+`tests/e2e/supported_agents.py` exposes this registry to shell scripts so
+`run_demo.sh` and `run_e2e_harness.sh` can stay data-driven instead of
+duplicating agent lists in bash.
+
 ## Trigger Script Architecture
 
 ### Parameterization
 
-All triggers accept `--agent-type <openclaw|cursor|claude_code>` (default:
-`openclaw`, or read from `EDAMAME_AGENT_TYPE` env var). This determines:
+All triggers accept `--agent-type <supported-agent-type>` (default:
+`openclaw`, or read from `EDAMAME_AGENT_TYPE` env var). The registry-backed
+harnesses currently validate against `openclaw`, `cursor`, `claude_code`,
+and `claude_desktop`. This determines:
 
 - **STATE_DIR**: `/tmp/edamame_{agent_type}_demo`
 - **File prefix**: `demo_{agent_type}_` (for `~/.ssh/`, `~/.aws/`, etc.)
@@ -165,12 +189,17 @@ tests/e2e/
     cleanup.py
   run_demo.sh                      # Full demo orchestrator
   run_e2e_harness.sh               # Automated E2E harness
+  supported_agents.py              # Registry helper for repo/path resolution
   E2E_TESTS.md                     # This document
 
 Intent injection scripts (one per agent repo):
   edamame_openclaw/tests/e2e_inject_intent.sh
   edamame_claude_code/tests/e2e_inject_intent.sh
+  edamame_claude_desktop/tests/e2e_inject_intent.sh
   edamame_cursor/tests/e2e_inject_intent.sh
+
+Registry source of truth:
+  supported_agents/index.json
 ```
 
 ## Duration and Timing

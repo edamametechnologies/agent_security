@@ -53,7 +53,7 @@ def parse_args() -> argparse.Namespace:
                    help="Runtime limit in seconds; 0 = until interrupted")
     p.add_argument("--payload-bytes", type=int, default=DEFAULT_PAYLOAD_BYTES)
     p.add_argument("--agent-type", default=None,
-                   help="Agent type: openclaw|cursor|claude_code (default: openclaw or EDAMAME_AGENT_TYPE)")
+                   help="Agent type: openclaw|cursor|claude_code|claude_desktop (default: openclaw or EDAMAME_AGENT_TYPE)")
     p.add_argument("--state-dir", type=Path, default=None)
     return p.parse_args()
 

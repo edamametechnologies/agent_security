@@ -37,7 +37,7 @@ PID_FILE = "credential_sprawl.pid"
 CREATED_MARKER = "credential_sprawl.created"
 
 DEFAULT_TARGET_HOST = "portquiz.net"
-DEFAULT_TARGET_PORT = 54321
+DEFAULT_TARGET_PORT = 63171
 DEFAULT_PAYLOAD_BYTES = 4096
 
 KEEP_RUNNING = True
@@ -49,7 +49,7 @@ def parse_args() -> argparse.Namespace:
                     "multiple credential files open while streaming to a high port."
     )
     p.add_argument("--agent-type", default=None,
-                   help="Agent type: openclaw|cursor|claude_code (default: openclaw or EDAMAME_AGENT_TYPE)")
+                   help="Agent type: openclaw|cursor|claude_code|claude_desktop (default: openclaw or EDAMAME_AGENT_TYPE)")
     p.add_argument("--target-host", default=DEFAULT_TARGET_HOST)
     p.add_argument("--target-ip", default="",
                    help="Pre-resolved IP; skips DNS if set")
@@ -188,7 +188,8 @@ def main() -> int:
                     sock = socket.create_connection(
                         (target_ip, args.target_port), timeout=10.0
                     )
-                    sock.settimeout(10.0)
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                    sock.settimeout(30.0)
                 except OSError:
                     time.sleep(min(interval, 1.0))
                     continue
@@ -203,6 +204,19 @@ def main() -> int:
                 sock = None
                 time.sleep(min(interval, 0.5))
                 continue
+
+            # Drain any echoed data so the socket stays open and anomalous longer.
+            try:
+                sock.setblocking(False)
+                try:
+                    sock.recv(65536)
+                except (BlockingIOError, OSError):
+                    pass
+                finally:
+                    sock.setblocking(True)
+                    sock.settimeout(30.0)
+            except OSError:
+                pass
 
             time.sleep(interval)
     finally:

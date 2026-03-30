@@ -23,13 +23,13 @@ Options:
   --stop-after-clean-round     Stop after the first round with no intent/CVE failures (default).
   --loop-rounds                Continue into round 2+ until duration budget or failure.
   --focus MODE                intent | cve | both (default: intent).
-                              intent: Claude + OpenClaw + Cursor tests/e2e_inject_intent.sh (in each agent repo)
+                              intent: registry-driven agent intent scripts from supported_agents/index.json
                               cve:    demo injectors (9 scenarios: blacklist, CVE, divergence, memory-poisoning, goal-drift, credential-sprawl, tool-poisoning, supply-chain-exfil)
                               both:   intent suite then CVE suite each round (often >30 min per round;
                                       shorten with --scenario-duration / --divergence-duration).
-  --parallel-intent           Run the three intent scripts concurrently (faster, heavier LLM).
+  --parallel-intent           Run the intent scripts concurrently (faster, heavier LLM).
   --sequential-intent         Default: run intent scripts one after another.
-  --agent-type NAME            openclaw | cursor | claude_code (agent type for triggers). Default: openclaw.
+  --agent-type NAME           Agent type for triggers; validated against the supported-agent registry. Default: openclaw.
   --scenario-duration SEC     CVE injector duration (non-divergence). Default: 150.
                               Must be >= 120s for L7 open_files attribution on macOS.
   --divergence-duration SEC     divergence injector duration. Default: 90.
@@ -47,6 +47,7 @@ Environment (passed through to child scripts):
   E2E_OPENCLAW_AGENT_INSTANCE_ID (optional; harness sets e2e-harness-<RUN_TS> if unset),
   E2E_DIVERGENCE_HARNESS_AGENT_INSTANCE_ID (optional; default: e2e-divergence-harness-<RUN_TS>),
   DIVERGENCE_MODEL_MIN_AGE_SECS (optional; default: 65),
+  Registry repo overrides (for example CURSOR_REPO / CLAUDE_REPO / CLAUDE_DESKTOP_REPO / OPENCLAW_REPO),
   E2E_SKIP_PLUGIN_CHECK, E2E_SKIP_PROVISION_STRICT (Cursor/Claude intent legs),
   E2E_SKIP_REPO_VERSION_CHECK (OpenClaw intent leg), etc.
 
@@ -60,7 +61,7 @@ Merge analysis:
   contributors and non-zero predictions per agent_type after intent pushes.
 
 Per-intent diagnostics:
-  Each leg writes round_<n>_<claude_code|openclaw|cursor>.log, *_diag.json on failure
+  Each leg writes round_<n>_<claude_code|claude_desktop|openclaw|cursor>.log, *_diag.json on failure
   (JSON: missing session_keys, contributor list, prediction counts). Round rows in
   report.jsonl include intent_legs with exit codes and durations.
 EOF
@@ -68,6 +69,7 @@ EOF
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TRIGGERS_DIR="$ROOT_DIR/triggers"
+SUPPORTED_AGENT_HELPER="$ROOT_DIR/supported_agents.py"
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$ROOT_DIR/../../..}"
 DURATION_SECONDS=7200
 ROUND_INTERVAL_SECONDS=0
@@ -86,15 +88,16 @@ INTENT_POLL_ATTEMPTS=48
 STOP_AFTER_CLEAN_ROUND=1
 DIVERGENCE_MODEL_MIN_AGE_SECS="${DIVERGENCE_MODEL_MIN_AGE_SECS:-65}"
 
-CURSOR_REPO="${CURSOR_REPO:-$ROOT_DIR/../../../edamame_cursor}"
-CLAUDE_REPO="${CLAUDE_REPO:-$ROOT_DIR/../../../edamame_claude_code}"
-OPENCLAW_REPO="${OPENCLAW_REPO:-$ROOT_DIR/../../../edamame_openclaw}"
 CLI_REPO="${EDAMAME_CLI_REPO:-$ROOT_DIR/../../../edamame_cli}"
+INTENT_AGENTS_JSON="[]"
+SUPPORTED_AGENT_TYPES_JSON="[]"
 
 RUN_TS="$(date +"%Y%m%d-%H%M%S")"
 HARNESS_START_EPOCH="$(date +%s)"
 ROUND_INDEX=0
 ANY_FAILURE=0
+CAPTURE_STARTED_BY_HARNESS=0
+VERIFY_BASELINE_VULN_TOTAL=0
 
 while (($# > 0)); do
   case "$1" in
@@ -146,14 +149,6 @@ case "$FOCUS" in
     ;;
 esac
 
-case "$AGENT_TYPE" in
-  openclaw|cursor|claude_code) ;;
-  *)
-    echo "--agent-type must be openclaw, cursor, or claude_code" >&2
-    exit 1
-    ;;
-esac
-
 if [[ -z "$REPORT_DIR" ]]; then
   REPORT_DIR="${HOME}/.edamame_e2e_reports/${RUN_TS}"
 fi
@@ -174,6 +169,42 @@ have_command() { command -v "$1" >/dev/null 2>&1; }
 
 require_command() {
   have_command "$1" || die "Required command not found: $1"
+}
+
+emit_intent_agent_lines() {
+  python3 - "$INTENT_AGENTS_JSON" <<'PY'
+import json
+import sys
+
+for agent in json.loads(sys.argv[1]):
+    print(
+        "\t".join(
+            [
+                agent["agent_type"],
+                agent["display_name"],
+                agent["intent_script"],
+                str(agent["intent_timeout_seconds"]),
+            ]
+        )
+    )
+PY
+}
+
+validate_supported_agent_type() {
+  local agent_type="$1"
+  python3 - "$SUPPORTED_AGENT_TYPES_JSON" "$agent_type" <<'PY'
+import json
+import sys
+
+supported = set(json.loads(sys.argv[1]))
+agent_type = sys.argv[2]
+if agent_type not in supported:
+    print(
+        f"--agent-type must be one of: {', '.join(sorted(supported))}",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+PY
 }
 
 budget_exhausted() {
@@ -208,6 +239,68 @@ ensure_edamame_app() {
   local health
   health="$(curl -sf "http://127.0.0.1:${port}/health" 2>/dev/null || true)"
   [[ "$health" == "OK" ]] || die "EDAMAME MCP health check failed on port ${port}. Start the app or edamame_posture with MCP enabled (set EDAMAME_MCP_PORT to override)."
+}
+
+capture_running_flag() {
+  python3 -c "
+import sys
+sys.path.insert(0, '$TRIGGERS_DIR')
+from _edamame_cli import cli_rpc
+print('1' if cli_rpc('is_capturing') else '0')
+" 2>/dev/null || echo "0"
+}
+
+ensure_capture_running() {
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "Capture preflight: [DRY-RUN] ensure capture running"
+    return 0
+  fi
+
+  local cli_bin running attempt
+  cli_bin="$(find_edamame_cli_bin)" || die "edamame_cli not found for capture preflight"
+  running="$(capture_running_flag)"
+  if [[ "$running" == "1" ]]; then
+    log "Capture preflight: capture already running"
+    return 0
+  fi
+
+  log "Capture preflight: starting packet capture"
+  "$cli_bin" rpc start_capture >/dev/null 2>&1 || die "Failed to start packet capture via edamame_cli"
+
+  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+    running="$(capture_running_flag)"
+    if [[ "$running" == "1" ]]; then
+      CAPTURE_STARTED_BY_HARNESS=1
+      log "Capture preflight: capture is running"
+      return 0
+    fi
+    run_cmd sleep 2
+  done
+
+  die "Packet capture did not become active after start_capture"
+}
+
+restore_capture_state() {
+  if [[ "$DRY_RUN" -eq 1 || "$CAPTURE_STARTED_BY_HARNESS" -ne 1 ]]; then
+    return 0
+  fi
+
+  local cli_bin running
+  if ! cli_bin="$(find_edamame_cli_bin)"; then
+    warn "Could not restore capture state: edamame_cli not found"
+    return 0
+  fi
+
+  log "Capture restore: stopping packet capture started by harness"
+  if ! "$cli_bin" rpc stop_capture >/dev/null 2>&1; then
+    warn "Failed to stop packet capture started by harness"
+    return 0
+  fi
+
+  running="$(capture_running_flag)"
+  if [[ "$running" == "1" ]]; then
+    warn "Packet capture still reports running after stop_capture"
+  fi
 }
 
 run_cmd() {
@@ -413,7 +506,7 @@ wait_for_divergence_model_ready() {
   if [[ "$DRY_RUN" -eq 1 ]]; then return 0; fi
 
   local waited=0
-  local max_wait=$((DIVERGENCE_MODEL_MIN_AGE_SECS + 30))
+  local max_wait=$((DIVERGENCE_MODEL_MIN_AGE_SECS + 60))
   while ((waited <= max_wait)); do
     local status
     status="$(python3 -c "
@@ -452,10 +545,13 @@ merge_snapshot_json() {
     echo '{"dry_run":true}'
     return 0
   fi
-  local raw
-  raw="$("$cli_bin" rpc get_behavioral_model --pretty 2>/dev/null || true)"
-  MERGE_LABEL="$label" MERGE_RAW="$raw" python3 <<'PY'
+  local raw_file
+  raw_file="$(mktemp "${TMPDIR:-/tmp}/edamame-merge-raw.XXXXXX")"
+  "$cli_bin" rpc get_behavioral_model --pretty >"$raw_file" 2>/dev/null || true
+  set +e
+  MERGE_LABEL="$label" MERGE_RAW_FILE="$raw_file" python3 <<'PY'
 import json, os, re, sys
+from pathlib import Path
 
 def behavioral_from_cli_output(text):
     text = (text or "").strip()
@@ -471,7 +567,7 @@ def behavioral_from_cli_output(text):
     return first
 
 label = os.environ.get("MERGE_LABEL", "")
-raw = os.environ.get("MERGE_RAW", "")
+raw_path = os.environ.get("MERGE_RAW_FILE", "")
 _dt = __import__("datetime")
 _now = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 out = {
@@ -479,6 +575,12 @@ out = {
     "label": label,
     "timestamp_utc": _now,
 }
+try:
+    raw = Path(raw_path).read_text(encoding="utf-8") if raw_path else ""
+except OSError as exc:
+    out["read_error"] = str(exc)
+    print(json.dumps(out, ensure_ascii=False))
+    raise SystemExit(0)
 try:
     m = behavioral_from_cli_output(raw)
 except Exception as exc:
@@ -538,6 +640,10 @@ else:
 
 print(json.dumps(out, ensure_ascii=False))
 PY
+  local py_exit=$?
+  set -e
+  rm -f "$raw_file"
+  return "$py_exit"
 }
 
 write_intent_leg_stats() {
@@ -546,47 +652,6 @@ write_intent_leg_stats() {
   [[ "$DRY_RUN" -eq 1 ]] && return 0
   python3 -c "import json,sys; print(json.dumps({'exit':int(sys.argv[1]),'seconds':int(sys.argv[2]),'log':sys.argv[3],'diag':sys.argv[4]}))" \
     "$rc" "$sec" "round_${r}_${key}.log" "round_${r}_${key}_diag.json" >"$REPORT_DIR/round_${r}_${key}.stats.json"
-}
-
-load_intent_leg_exports() {
-  [[ "$DRY_RUN" -eq 1 ]] && return 0
-  # macOS /bin/bash 3.2: `eval "$(python3 <<PY ...)"` breaks when the heredoc contains `)`
-  # (e.g. int(...)) — the parser can terminate $( too early. Write exports to a temp file and source.
-  local _harness_intent_tf
-  _harness_intent_tf="$(mktemp "${TMPDIR:-/tmp}/edamame_e2e_intent_exports.XXXXXX")"
-  export _HARNESS_LOAD_RD="$REPORT_DIR" _HARNESS_LOAD_R="$ROUND_INDEX"
-  python3 <<'PY' >"$_harness_intent_tf"
-import json
-import os
-
-rd = os.environ["_HARNESS_LOAD_RD"]
-r = os.environ["_HARNESS_LOAD_R"]
-pairs = [
-    ("claude_code", "INTENT_CLAUDE_CODE"),
-    ("openclaw", "INTENT_OPENCLAW"),
-    ("cursor", "INTENT_CURSOR"),
-]
-lines = []
-for key, base in pairs:
-    path = os.path.join(rd, f"round_{r}_{key}.stats.json")
-    if not os.path.isfile(path):
-        lines.append(f"export {base}_EXIT=0")
-        lines.append(f"export {base}_SEC=0")
-        continue
-    try:
-        d = json.load(open(path, encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        lines.append(f"export {base}_EXIT=0")
-        lines.append(f"export {base}_SEC=0")
-        continue
-    lines.append(f"export {base}_EXIT={int(d.get('exit', 0))}")
-    lines.append(f"export {base}_SEC={int(d.get('seconds', 0))}")
-print("\n".join(lines))
-PY
-  # shellcheck disable=SC1090
-  source "$_harness_intent_tf"
-  rm -f "$_harness_intent_tf"
-  unset _HARNESS_LOAD_RD _HARNESS_LOAD_R
 }
 
 run_intent_leg() {
@@ -609,11 +674,6 @@ run_intent_leg() {
   t1="$(date +%s)"
   elapsed=$((t1 - t0))
   write_intent_leg_stats "$key" "$rc" "$elapsed"
-  case "$key" in
-    claude_code) INTENT_CLAUDE_CODE_EXIT=$rc; INTENT_CLAUDE_CODE_SEC=$elapsed ;;
-    openclaw) INTENT_OPENCLAW_EXIT=$rc; INTENT_OPENCLAW_SEC=$elapsed ;;
-    cursor) INTENT_CURSOR_EXIT=$rc; INTENT_CURSOR_SEC=$elapsed ;;
-  esac
   return "$rc"
 }
 
@@ -643,38 +703,51 @@ run_intent_suite() {
     export E2E_OPENCLAW_AGENT_INSTANCE_ID="e2e-harness-${RUN_TS}"
   fi
   log "OpenClaw E2E agent_instance_id=${E2E_OPENCLAW_AGENT_INSTANCE_ID}"
-  local rc=0 p1 p2 p3
-  INTENT_CLAUDE_CODE_EXIT=0 INTENT_CLAUDE_CODE_SEC=0
-  INTENT_OPENCLAW_EXIT=0 INTENT_OPENCLAW_SEC=0
-  INTENT_CURSOR_EXIT=0 INTENT_CURSOR_SEC=0
+  local rc=0
+  local -a keys=()
+  local -a humans=()
+  local -a scripts=()
+  local -a timeouts=()
+  local -a pids=()
+
+  while IFS=$'\t' read -r key human script timeout_secs; do
+    [[ -n "$key" ]] || continue
+    keys+=("$key")
+    humans+=("$human")
+    scripts+=("$script")
+    timeouts+=("$timeout_secs")
+  done < <(emit_intent_agent_lines)
+
+  ((${#keys[@]} > 0)) || die "No intent-capable agents found in supported-agent registry."
 
   if [[ "$DRY_RUN" -eq 0 ]]; then
-    rm -f "$REPORT_DIR"/round_${ROUND_INDEX}_claude_code.stats.json \
-      "$REPORT_DIR"/round_${ROUND_INDEX}_openclaw.stats.json \
-      "$REPORT_DIR"/round_${ROUND_INDEX}_cursor.stats.json \
-      "$REPORT_DIR"/round_${ROUND_INDEX}_claude_code_diag.json \
-      "$REPORT_DIR"/round_${ROUND_INDEX}_openclaw_diag.json \
-      "$REPORT_DIR"/round_${ROUND_INDEX}_cursor_diag.json 2>/dev/null || true
+    local key
+    for key in "${keys[@]}"; do
+      rm -f \
+        "$REPORT_DIR/round_${ROUND_INDEX}_${key}.stats.json" \
+        "$REPORT_DIR/round_${ROUND_INDEX}_${key}_diag.json" \
+        "$REPORT_DIR/round_${ROUND_INDEX}_${key}.log" 2>/dev/null || true
+    done
   fi
 
   if [[ "$PARALLEL_INTENT" -eq 1 ]]; then
-    log "Intent E2E: parallel (Claude + OpenClaw + Cursor)"
-    intent_parallel_worker claude_code "$CLAUDE_REPO/tests/e2e_inject_intent.sh" 900 &
-    p1=$!
-    intent_parallel_worker openclaw "$OPENCLAW_REPO/tests/e2e_inject_intent.sh" 600 &
-    p2=$!
-    intent_parallel_worker cursor "$CURSOR_REPO/tests/e2e_inject_intent.sh" 900 &
-    p3=$!
-    if ! wait "$p1"; then rc=1; fi
-    if ! wait "$p2"; then rc=1; fi
-    if ! wait "$p3"; then rc=1; fi
-    load_intent_leg_exports
+    log "Intent E2E: parallel ($(printf '%s, ' "${humans[@]}" | sed 's/, $//'))"
+    local i
+    for i in "${!keys[@]}"; do
+      intent_parallel_worker "${keys[$i]}" "${scripts[$i]}" "${timeouts[$i]}" &
+      pids+=("$!")
+    done
+    local pid
+    for pid in "${pids[@]}"; do
+      if ! wait "$pid"; then rc=1; fi
+    done
     return "$rc"
   fi
 
-  run_intent_leg claude_code "$CLAUDE_REPO/tests/e2e_inject_intent.sh" 900 "Claude Code" || rc=1
-  run_intent_leg openclaw "$OPENCLAW_REPO/tests/e2e_inject_intent.sh" 600 "OpenClaw (raw payload)" || rc=1
-  run_intent_leg cursor "$CURSOR_REPO/tests/e2e_inject_intent.sh" 900 "Cursor" || rc=1
+  local i
+  for i in "${!keys[@]}"; do
+    run_intent_leg "${keys[$i]}" "${scripts[$i]}" "${timeouts[$i]}" "${humans[$i]}" || rc=1
+  done
   return "$rc"
 }
 
@@ -691,7 +764,389 @@ scenario_expected_check() {
     goal_drift)              echo "divergence_verdict" ;;
     credential_sprawl)       echo "token_exfiltration" ;;
     tool_poisoning_effects)  echo "token_exfiltration" ;;
+    supply_chain_exfil)      echo "credential_harvest" ;;
     *)                       echo "" ;;
+  esac
+}
+
+count_vulnerability_findings_for_check() {
+  local check="$1"
+  vulnerability_finding_status_for_check "$check" | cut -d'|' -f1
+}
+
+count_vulnerability_findings_for_scenario() {
+  local scenario="$1"
+  local check="$2"
+  vulnerability_finding_status_for_scenario "$scenario" "$check" | cut -d'|' -f1
+}
+
+vulnerability_finding_status_for_check() {
+  local check="$1"
+  python3 -c "
+import sys; sys.path.insert(0, '$TRIGGERS_DIR')
+from _edamame_cli import cli_rpc
+check = '$check'
+current = 0
+history_count = 0
+try:
+    report = cli_rpc('get_vulnerability_findings')
+    findings = report.get('findings', []) if isinstance(report, dict) else []
+    current = len([f for f in findings if f.get('check') == check])
+except Exception:
+    pass
+try:
+    history = cli_rpc('get_vulnerability_history', '{\"limit\": 20}')
+    if isinstance(history, list):
+        for entry in history:
+            for f in (entry.get('findings') or []):
+                if f.get('check') == check:
+                    history_count += 1
+except Exception:
+    pass
+print(f'{current + history_count}|{current}|{history_count}')
+" 2>/dev/null || echo "0|0|0"
+}
+
+vulnerability_finding_status_for_scenario() {
+  local scenario="$1"
+  local check="$2"
+  python3 -c "
+import sys; sys.path.insert(0, '$TRIGGERS_DIR')
+from _edamame_cli import cli_rpc
+
+scenario = '$scenario'.strip()
+check = '$check'
+
+SCENARIO_MARKERS = {
+    'cve_token_exfil': ['_exfil_token', '_exfil'],
+    'memory_poisoning': ['_memory_poison', 'memory_poisoned.md'],
+    'credential_sprawl': ['_sprawl_key', '_sprawl', 'demo_openclaw_sprawl'],
+    'tool_poisoning_effects': ['_tool_poison', 'demo_openclaw_tool_poison'],
+}
+
+SCENARIO_PORTS = {
+    'cve_token_exfil': [63169],
+    'credential_sprawl': [63171],
+    'tool_poisoning_effects': [63172],
+}
+
+markers = [marker.lower() for marker in SCENARIO_MARKERS.get(scenario, [])]
+ports = set(SCENARIO_PORTS.get(scenario, []))
+
+def matches(finding):
+    if not isinstance(finding, dict):
+        return False
+    if finding.get('check') != check:
+        return False
+    if not markers and not ports:
+        return True
+
+    joined = '\\n'.join(str(path) for path in (finding.get('open_files') or [])).lower()
+    if markers and any(marker in joined for marker in markers):
+        return True
+
+    port = finding.get('destination_port')
+    try:
+        port = int(port) if port is not None else None
+    except Exception:
+        port = None
+    return port in ports
+
+current = 0
+history_count = 0
+try:
+    report = cli_rpc('get_vulnerability_findings')
+    findings = report.get('findings', []) if isinstance(report, dict) else []
+    current = sum(1 for finding in findings if matches(finding))
+except Exception:
+    pass
+try:
+    history = cli_rpc('get_vulnerability_history', '{\"limit\": 20}')
+    if isinstance(history, list):
+        for entry in history:
+            for finding in (entry.get('findings') or []):
+                if matches(finding):
+                    history_count += 1
+except Exception:
+    pass
+print(f'{current + history_count}|{current}|{history_count}')
+" 2>/dev/null || echo "0|0|0"
+}
+
+token_family_l7_status() {
+  python3 -c "
+import sys; sys.path.insert(0, '$TRIGGERS_DIR')
+from _edamame_cli import cli_rpc
+sessions = cli_rpc('get_anomalous_sessions')
+active = [s for s in sessions if isinstance(s, dict) and (s.get('status') or {}).get('active')]
+active_with_of = [s for s in active if len((s.get('l7') or {}).get('open_files', [])) > 0]
+print(f'{len(active)}|{len(active_with_of)}')
+" 2>/dev/null || echo "0|0"
+}
+
+sandbox_exploitation_readiness_status() {
+  python3 -c "
+import sys; sys.path.insert(0, '$TRIGGERS_DIR')
+from _edamame_cli import cli_rpc
+sessions = cli_rpc('get_current_sessions')
+active = 0
+candidates = 0
+for session in sessions or []:
+    if not isinstance(session, dict):
+        continue
+    if not (session.get('status') or {}).get('active'):
+        continue
+    active += 1
+    l7 = session.get('l7') or {}
+    paths = [
+        str(l7.get('parent_process_path') or ''),
+        str(l7.get('parent_script_path') or ''),
+        str(l7.get('process_path') or ''),
+    ]
+    spawned_from_tmp = bool(l7.get('spawned_from_tmp'))
+    suspicious = spawned_from_tmp or any('/tmp/' in path for path in paths if path)
+    if suspicious:
+        candidates += 1
+print(f'{active}|{candidates}')
+" 2>/dev/null || echo "0|0"
+}
+
+credential_harvest_l7_status() {
+  python3 -c "
+import sys; sys.path.insert(0, '$TRIGGERS_DIR')
+from _edamame_cli import cli_rpc
+
+LABEL_MARKERS = {
+    'ssh': ['/.ssh/', '_supply_chain_key', '_sc_ssh'],
+    'aws': ['/.aws/', '_sc_credentials'],
+    'gcp': ['/gcloud/', '_sc_adc.json'],
+    'git': ['git-credentials', '/.git-credentials'],
+    'kube': ['/.kube/', '_sc_config'],
+    'docker': ['/.docker/', '_sc_config.json'],
+    'vault': ['vault-token'],
+    'env': ['/.env_', '_supply_chain'],
+    'crypto': ['/.bitcoin/', '/.ethereum/', '/solana/'],
+}
+
+def classify(paths):
+    labels = set()
+    for raw in paths or []:
+        p = str(raw).lower()
+        for label, needles in LABEL_MARKERS.items():
+            if any(needle in p for needle in needles):
+                labels.add(label)
+    return labels
+
+sessions = cli_rpc('get_current_sessions')
+active = [s for s in sessions if isinstance(s, dict) and (s.get('status') or {}).get('active')]
+candidates = 0
+max_labels = 0
+for session in active:
+    l7 = session.get('l7') or {}
+    labels = classify(l7.get('open_files') or [])
+    max_labels = max(max_labels, len(labels))
+    if len(labels) >= 3:
+        candidates += 1
+print(f'{len(active)}|{candidates}|{max_labels}')
+" 2>/dev/null || echo "0|0|0"
+}
+
+prepare_scenario_baseline() {
+  local scenario="$1"
+  local expected="$2"
+
+  VERIFY_BASELINE_VULN_TOTAL=0
+
+  case "$expected" in
+    token_exfiltration|sandbox_exploitation|credential_harvest)
+      if [[ "$DRY_RUN" -eq 1 ]]; then
+        log "  [DRY-RUN] reset vulnerability detector state for $scenario ($expected)"
+        return 0
+      fi
+
+      python3 "$TRIGGERS_DIR/_edamame_cli.py" clear_vulnerability_history >/dev/null 2>&1 || true
+
+      local waited=0
+      local max_wait=45
+      while ((waited <= max_wait)); do
+        python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_vulnerability_detector_tick >/dev/null 2>&1 || true
+        sleep 2
+
+        local status total current history
+        status="$(vulnerability_finding_status_for_scenario "$scenario" "$expected")"
+        total="${status%%|*}"
+        local rest="${status#*|}"
+        current="${rest%%|*}"
+        history="${rest#*|}"
+
+        if [[ "$current" -eq 0 && "$history" -eq 0 ]]; then
+          log "  Reset vulnerability detector state for $expected"
+          VERIFY_BASELINE_VULN_TOTAL=0
+          return 0
+        fi
+
+        log "  Waiting for stale $expected findings to clear: current=$current history=$history"
+        run_cmd sleep 5
+        waited=$((waited + 5))
+      done
+
+      VERIFY_BASELINE_VULN_TOTAL="$(count_vulnerability_findings_for_scenario "$scenario" "$expected")"
+      warn "Stale $expected findings remain after reset; using baseline=$VERIFY_BASELINE_VULN_TOTAL"
+      ;;
+    divergence_verdict)
+      if [[ "$DRY_RUN" -eq 1 ]]; then
+        log "  [DRY-RUN] reseed divergence model for $scenario"
+        return 0
+      fi
+
+      python3 "$TRIGGERS_DIR/_edamame_cli.py" clear_divergence_state >/dev/null 2>&1 || true
+      python3 "$TRIGGERS_DIR/_edamame_cli.py" clear_divergence_history >/dev/null 2>&1 || true
+      ensure_divergence_harness_ready || return 1
+      wait_for_divergence_model_ready || return 1
+      log "  Reseeded divergence model for $scenario"
+      ;;
+  esac
+}
+
+wait_for_detection_readiness() {
+  local scenario="$1"
+  local expected="$2"
+  local max_wait="$3"
+
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "  [DRY-RUN] wait_for_detection_readiness $scenario -> $expected (${max_wait}s)"
+    return 0
+  fi
+
+  case "$expected" in
+    token_exfiltration)
+      local waited=0
+      local interval=10
+      while ((waited < max_wait)); do
+        local found_status found found_current found_history
+        local l7_status anomalous_active anomalous_with_of
+
+        found_status="$(vulnerability_finding_status_for_scenario "$scenario" "$expected")"
+        found="${found_status%%|*}"
+        local found_rest="${found_status#*|}"
+        found_current="${found_rest%%|*}"
+        found_history="${found_rest#*|}"
+        if [[ "$found" -gt "$VERIFY_BASELINE_VULN_TOTAL" ]]; then
+          log "  Detection landed during warm-up: $((found - VERIFY_BASELINE_VULN_TOTAL)) new $expected finding(s) (current=$found_current history=$found_history baseline=$VERIFY_BASELINE_VULN_TOTAL)"
+          return 0
+        fi
+
+        l7_status="$(token_family_l7_status)"
+        anomalous_active="${l7_status%%|*}"
+        anomalous_with_of="${l7_status#*|}"
+        if [[ "$anomalous_active" -gt 0 && "$anomalous_with_of" -gt 0 ]]; then
+          log "  L7 readiness reached for $scenario: active_anomalous=$anomalous_active with_open_files=$anomalous_with_of"
+          return 0
+        fi
+
+        local remaining=$((max_wait - waited))
+        local sleep_for="$interval"
+        if ((remaining < interval)); then
+          sleep_for="$remaining"
+        fi
+        if ((sleep_for <= 0)); then
+          break
+        fi
+        log "  Waiting for L7 readiness: active_anomalous=$anomalous_active with_open_files=$anomalous_with_of (${waited}/${max_wait}s)"
+        run_cmd sleep "$sleep_for"
+        waited=$((waited + sleep_for))
+      done
+      log "  L7 readiness timeout for $scenario after ${max_wait}s; proceeding to verification"
+      ;;
+
+    sandbox_exploitation)
+      local waited=0
+      local interval=10
+      while ((waited < max_wait)); do
+        local found_status found found_current found_history
+        local readiness_status active_sessions sandbox_candidates
+
+        found_status="$(vulnerability_finding_status_for_scenario "$scenario" "$expected")"
+        found="${found_status%%|*}"
+        local found_rest="${found_status#*|}"
+        found_current="${found_rest%%|*}"
+        found_history="${found_rest#*|}"
+        if [[ "$found" -gt "$VERIFY_BASELINE_VULN_TOTAL" ]]; then
+          log "  Detection landed during warm-up: $((found - VERIFY_BASELINE_VULN_TOTAL)) new sandbox_exploitation finding(s) (current=$found_current history=$found_history baseline=$VERIFY_BASELINE_VULN_TOTAL)"
+          return 0
+        fi
+
+        readiness_status="$(sandbox_exploitation_readiness_status)"
+        active_sessions="${readiness_status%%|*}"
+        sandbox_candidates="${readiness_status#*|}"
+        if [[ "$sandbox_candidates" -gt 0 ]]; then
+          log "  Sandbox readiness reached for $scenario: active_sessions=$active_sessions suspicious_lineage=$sandbox_candidates"
+          return 0
+        fi
+
+        local remaining=$((max_wait - waited))
+        local sleep_for="$interval"
+        if ((remaining < interval)); then
+          sleep_for="$remaining"
+        fi
+        if ((sleep_for <= 0)); then
+          break
+        fi
+        log "  Waiting for sandbox readiness: active_sessions=$active_sessions suspicious_lineage=$sandbox_candidates (${waited}/${max_wait}s)"
+        run_cmd sleep "$sleep_for"
+        waited=$((waited + sleep_for))
+      done
+      log "  Sandbox readiness timeout for $scenario after ${max_wait}s; proceeding to verification"
+      ;;
+
+    credential_harvest)
+      local waited=0
+      local interval=10
+      while ((waited < max_wait)); do
+        local found_status found found_current found_history
+        local harvest_status active_sessions harvest_candidates harvest_max_labels
+
+        found_status="$(vulnerability_finding_status_for_scenario "$scenario" "$expected")"
+        found="${found_status%%|*}"
+        local found_rest="${found_status#*|}"
+        found_current="${found_rest%%|*}"
+        found_history="${found_rest#*|}"
+        if [[ "$found" -gt "$VERIFY_BASELINE_VULN_TOTAL" ]]; then
+          log "  Detection landed during warm-up: $((found - VERIFY_BASELINE_VULN_TOTAL)) new credential_harvest finding(s) (current=$found_current history=$found_history baseline=$VERIFY_BASELINE_VULN_TOTAL)"
+          return 0
+        fi
+
+        harvest_status="$(credential_harvest_l7_status)"
+        active_sessions="${harvest_status%%|*}"
+        local harvest_rest="${harvest_status#*|}"
+        harvest_candidates="${harvest_rest%%|*}"
+        harvest_max_labels="${harvest_rest#*|}"
+        if [[ "$harvest_candidates" -gt 0 ]]; then
+          log "  Harvest readiness reached for $scenario: active_sessions=$active_sessions candidates=$harvest_candidates max_labels=$harvest_max_labels"
+          return 0
+        fi
+
+        local remaining=$((max_wait - waited))
+        local sleep_for="$interval"
+        if ((remaining < interval)); then
+          sleep_for="$remaining"
+        fi
+        if ((sleep_for <= 0)); then
+          break
+        fi
+        log "  Waiting for harvest readiness: active_sessions=$active_sessions candidates=$harvest_candidates max_labels=$harvest_max_labels (${waited}/${max_wait}s)"
+        run_cmd sleep "$sleep_for"
+        waited=$((waited + sleep_for))
+      done
+      log "  Harvest readiness timeout for $scenario after ${max_wait}s; proceeding to verification"
+      ;;
+
+    *)
+      if [[ "$max_wait" -gt 0 ]]; then
+        log "  waiting ${max_wait}s for L7 attribution..."
+        run_cmd sleep "$max_wait"
+      fi
+      ;;
   esac
 }
 
@@ -778,53 +1233,114 @@ print(f\"{'NONE' if verdict is None else str(verdict).strip().upper()}|{probe_ac
         contributor_count="${verdict_rest%%|*}"
         engine_running="${verdict_rest#*|}"
         if [[ "$verdict" == "DIVERGENCE" ]]; then
-          log "  DETECTED: divergence verdict=$verdict"
+          log "  DETECTED: divergence verdict=$verdict probe_active=$probe_active"
           detected=1
         else
           log "  Divergence status: verdict=$verdict probe_active=$probe_active model_age=${model_age}s contributors=$contributor_count running=$engine_running"
         fi
         ;;
 
-      token_exfiltration|sandbox_exploitation)
-        local found l7_status
-        l7_status="$(python3 -c "
-import sys; sys.path.insert(0, '$TRIGGERS_DIR')
-from _edamame_cli import cli_rpc
-check = '$expected'
-found = 0
-# Check current findings first
-try:
-    report = cli_rpc('get_vulnerability_findings')
-    findings = report.get('findings', []) if isinstance(report, dict) else []
-    found = len([f for f in findings if f.get('check') == check])
-except Exception:
-    pass
-# Fall back to vulnerability history (the app shows history, not just current tick)
-if found == 0:
-    try:
-        history = cli_rpc('get_vulnerability_history', '{\"limit\": 20}')
-        if isinstance(history, list):
-            for entry in history:
-                for f in (entry.get('findings') or []):
-                    if f.get('check') == check:
-                        found += 1
-    except Exception:
-        pass
-# L7 diagnostics
-sessions = cli_rpc('get_anomalous_sessions')
-active = [s for s in sessions if isinstance(s, dict) and (s.get('status') or {}).get('active')]
-active_with_of = [s for s in active if len((s.get('l7') or {}).get('open_files', [])) > 0]
-print(f'{found}|{len(active)}|{len(active_with_of)}')
-" 2>/dev/null || echo "0|0|0")"
-        found="${l7_status%%|*}"
-        local rest="${l7_status#*|}"
-        local anomalous_active="${rest%%|*}"
-        local anomalous_with_of="${rest#*|}"
-        if [[ "$found" -gt 0 ]]; then
-          log "  DETECTED: $found $expected finding(s) (current + history)"
+      token_exfiltration)
+        local found found_current found_history l7_status
+        local found_status
+        found_status="$(vulnerability_finding_status_for_scenario "$scenario" "$expected")"
+        found="${found_status%%|*}"
+        local found_rest="${found_status#*|}"
+        found_current="${found_rest%%|*}"
+        found_history="${found_rest#*|}"
+        l7_status="$(token_family_l7_status)"
+        local anomalous_active="${l7_status%%|*}"
+        local anomalous_with_of="${l7_status#*|}"
+        if [[ "$found" -gt "$VERIFY_BASELINE_VULN_TOTAL" ]]; then
+          log "  DETECTED: $((found - VERIFY_BASELINE_VULN_TOTAL)) new $expected finding(s) (current=$found_current history=$found_history baseline=$VERIFY_BASELINE_VULN_TOTAL)"
           detected=1
+        elif [[ "$expected" == "token_exfiltration" && "$anomalous_active" -gt 0 && "$anomalous_with_of" -gt 0 ]]; then
+          log "  L7 overlap present; forcing immediate vulnerability detector tick..."
+          python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_vulnerability_detector_tick >/dev/null 2>&1 || true
+          sleep 3
+          found_status="$(vulnerability_finding_status_for_scenario "$scenario" "$expected")"
+          found="${found_status%%|*}"
+          found_rest="${found_status#*|}"
+          found_current="${found_rest%%|*}"
+          found_history="${found_rest#*|}"
+          if [[ "$found" -gt "$VERIFY_BASELINE_VULN_TOTAL" ]]; then
+            log "  DETECTED: $((found - VERIFY_BASELINE_VULN_TOTAL)) new $expected finding(s) after immediate detector tick (current=$found_current history=$found_history baseline=$VERIFY_BASELINE_VULN_TOTAL)"
+            detected=1
+          else
+            log "  L7 status: active_anomalous=$anomalous_active with_open_files=$anomalous_with_of (total=$found baseline=$VERIFY_BASELINE_VULN_TOTAL after immediate tick)"
+          fi
         else
-          log "  L7 status: active_anomalous=$anomalous_active with_open_files=$anomalous_with_of"
+          log "  L7 status: active_anomalous=$anomalous_active with_open_files=$anomalous_with_of (total=$found baseline=$VERIFY_BASELINE_VULN_TOTAL)"
+        fi
+        ;;
+
+      sandbox_exploitation)
+        local found found_current found_history readiness_status
+        local found_status
+        found_status="$(vulnerability_finding_status_for_scenario "$scenario" "$expected")"
+        found="${found_status%%|*}"
+        local found_rest="${found_status#*|}"
+        found_current="${found_rest%%|*}"
+        found_history="${found_rest#*|}"
+        readiness_status="$(sandbox_exploitation_readiness_status)"
+        local active_sessions="${readiness_status%%|*}"
+        local sandbox_candidates="${readiness_status#*|}"
+        if [[ "$found" -gt "$VERIFY_BASELINE_VULN_TOTAL" ]]; then
+          log "  DETECTED: $((found - VERIFY_BASELINE_VULN_TOTAL)) new sandbox_exploitation finding(s) (current=$found_current history=$found_history baseline=$VERIFY_BASELINE_VULN_TOTAL)"
+          detected=1
+        elif [[ "$sandbox_candidates" -gt 0 ]]; then
+          log "  Sandbox lineage present; forcing immediate vulnerability detector tick..."
+          python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_vulnerability_detector_tick >/dev/null 2>&1 || true
+          sleep 3
+          found_status="$(vulnerability_finding_status_for_scenario "$scenario" "$expected")"
+          found="${found_status%%|*}"
+          found_rest="${found_status#*|}"
+          found_current="${found_rest%%|*}"
+          found_history="${found_rest#*|}"
+          if [[ "$found" -gt "$VERIFY_BASELINE_VULN_TOTAL" ]]; then
+            log "  DETECTED: $((found - VERIFY_BASELINE_VULN_TOTAL)) new sandbox_exploitation finding(s) after immediate detector tick (current=$found_current history=$found_history baseline=$VERIFY_BASELINE_VULN_TOTAL)"
+            detected=1
+          else
+            log "  Sandbox status: active_sessions=$active_sessions suspicious_lineage=$sandbox_candidates (total=$found baseline=$VERIFY_BASELINE_VULN_TOTAL after immediate tick)"
+          fi
+        else
+          log "  Sandbox status: active_sessions=$active_sessions suspicious_lineage=$sandbox_candidates (total=$found baseline=$VERIFY_BASELINE_VULN_TOTAL)"
+        fi
+        ;;
+
+      credential_harvest)
+        local found found_current found_history harvest_status
+        local found_status
+        found_status="$(vulnerability_finding_status_for_scenario "$scenario" "$expected")"
+        found="${found_status%%|*}"
+        local found_rest="${found_status#*|}"
+        found_current="${found_rest%%|*}"
+        found_history="${found_rest#*|}"
+        harvest_status="$(credential_harvest_l7_status)"
+        local active_sessions="${harvest_status%%|*}"
+        local harvest_rest="${harvest_status#*|}"
+        local harvest_candidates="${harvest_rest%%|*}"
+        local harvest_max_labels="${harvest_rest#*|}"
+        if [[ "$found" -gt "$VERIFY_BASELINE_VULN_TOTAL" ]]; then
+          log "  DETECTED: $((found - VERIFY_BASELINE_VULN_TOTAL)) new credential_harvest finding(s) (current=$found_current history=$found_history baseline=$VERIFY_BASELINE_VULN_TOTAL)"
+          detected=1
+        elif [[ "$harvest_candidates" -gt 0 ]]; then
+          log "  Harvest candidates present; forcing immediate vulnerability detector tick..."
+          python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_vulnerability_detector_tick >/dev/null 2>&1 || true
+          sleep 3
+          found_status="$(vulnerability_finding_status_for_scenario "$scenario" "$expected")"
+          found="${found_status%%|*}"
+          found_rest="${found_status#*|}"
+          found_current="${found_rest%%|*}"
+          found_history="${found_rest#*|}"
+          if [[ "$found" -gt "$VERIFY_BASELINE_VULN_TOTAL" ]]; then
+            log "  DETECTED: $((found - VERIFY_BASELINE_VULN_TOTAL)) new credential_harvest finding(s) after immediate detector tick (current=$found_current history=$found_history baseline=$VERIFY_BASELINE_VULN_TOTAL)"
+            detected=1
+          else
+            log "  Harvest status: active_sessions=$active_sessions candidates=$harvest_candidates max_labels=$harvest_max_labels (total=$found baseline=$VERIFY_BASELINE_VULN_TOTAL after immediate tick)"
+          fi
+        else
+          log "  Harvest status: active_sessions=$active_sessions candidates=$harvest_candidates max_labels=$harvest_max_labels (total=$found baseline=$VERIFY_BASELINE_VULN_TOTAL)"
         fi
         ;;
     esac
@@ -851,32 +1367,47 @@ print(f'{found}|{len(active)}|{len(active_with_of)}')
 run_cve_suite() {
   local scenario duration rc=0
   local scenarios=(blacklist_comm cve_token_exfil cve_sandbox_escape divergence memory_poisoning goal_drift credential_sprawl tool_poisoning_effects supply_chain_exfil)
+  ensure_capture_running
   run_injector_cleanup
-  if ! ensure_divergence_harness_ready; then
-    rc=1
-    if [[ "$STRICT" -eq 1 ]]; then
-      return 1
-    fi
-  fi
   for scenario in "${scenarios[@]}"; do
+    local expected
+    expected="$(scenario_expected_check "$scenario")"
     case "$scenario" in
       divergence|goal_drift) duration="$DIVERGENCE_DURATION" ;;
       *) duration="$SCENARIO_DURATION" ;;
     esac
 
-    # Start trigger in background (stays alive for duration)
-    INJECTOR_PID=""
-    run_injector "$scenario" "$duration"
-
-    # Wait for L7 attribution before verifying (trigger still running).
     local l7_wait
     case "$scenario" in
       divergence|goal_drift) l7_wait=60 ;;
       blacklist_comm) l7_wait=30 ;;
       *) l7_wait=120 ;;
     esac
-    log "  waiting ${l7_wait}s for L7 attribution..."
-    run_cmd sleep "$l7_wait"
+
+    if [[ "$expected" == "token_exfiltration" || "$expected" == "sandbox_exploitation" || "$expected" == "credential_harvest" || "$expected" == "divergence_verdict" ]]; then
+      local min_duration
+      min_duration=$((l7_wait + (DETECTION_VERIFY_RETRIES * DETECTION_VERIFY_INTERVAL) + 30))
+      if ((duration < min_duration)); then
+        duration="$min_duration"
+      fi
+    fi
+
+    if ! prepare_scenario_baseline "$scenario" "$expected"; then
+      warn "Scenario preflight failed for $scenario"
+      rc=1
+      if [[ "$STRICT" -eq 1 ]]; then
+        return 1
+      fi
+      continue
+    fi
+
+    # Start trigger in background (stays alive for duration)
+    INJECTOR_PID=""
+    run_injector "$scenario" "$duration"
+
+    # Wait for L7 attribution before verifying, but stop early once the relevant
+    # signal shows up so short-lived sessions do not go inactive first.
+    wait_for_detection_readiness "$scenario" "$expected" "$l7_wait"
 
     # Verify while trigger is still alive (sessions are active)
     if ! verify_detection "$scenario"; then
@@ -927,11 +1458,12 @@ with summary_path.open("w", encoding="utf-8") as f:
     f.write(f"- Rounds completed: {rounds}\n")
     f.write(f"- Overall: {'FAIL' if failure else 'PASS'}\n\n")
     if round_rows:
+        intent_agents = json.loads(os.environ.get("INTENT_AGENTS_JSON", "[]"))
+        intent_headers = [agent["agent_type"] for agent in intent_agents]
         f.write("## Rounds\n\n")
-        f.write(
-            "| round | phases | intent | cve | first_fail | claude (ex/s) | openclaw | cursor |\n"
-        )
-        f.write("|------:|--------|-------:|----:|------------|---------------|----------|--------|\n")
+        headers = ["round", "phases", "intent", "cve", "first_fail"] + intent_headers
+        f.write("| " + " | ".join(headers) + " |\n")
+        f.write("|" + "|".join(["---"] * len(headers)) + "|\n")
         for r in round_rows:
             legs = r.get("intent_legs") or {}
 
@@ -944,11 +1476,14 @@ with summary_path.open("w", encoding="utf-8") as f:
                 return f"{ex} / {sec}s"
 
             ff = r.get("intent_first_failure") or ""
-            f.write(
-                f"| {r.get('round')} | {','.join(r.get('phases') or [])} | "
-                f"{r.get('intent_exit', '')} | {r.get('cve_exit', '')} | {ff} | "
-                f"{leg_cell('claude_code')} | {leg_cell('openclaw')} | {leg_cell('cursor')} |\n"
-            )
+            row = [
+                str(r.get("round")),
+                ",".join(r.get("phases") or []),
+                str(r.get("intent_exit", "")),
+                str(r.get("cve_exit", "")),
+                ff,
+            ] + [leg_cell(agent["agent_type"]) for agent in intent_agents]
+            f.write("| " + " | ".join(row) + " |\n")
         f.write("\n")
         f.write("Per-round JSON in `report.jsonl` includes `intent_legs` with `diag_summary` when a leg failed and wrote `*_diag.json`.\n\n")
     f.write("## Merge analysis (last snapshot)\n\n")
@@ -979,17 +1514,21 @@ PY
 }
 
 validate_repos() {
-  [[ -d "$CURSOR_REPO" ]] || die "CURSOR_REPO not found: $CURSOR_REPO"
-  [[ -d "$CLAUDE_REPO" ]] || die "CLAUDE_REPO not found: $CLAUDE_REPO"
-  [[ -d "$OPENCLAW_REPO" ]] || die "OPENCLAW_REPO not found: $OPENCLAW_REPO"
+  python3 "$SUPPORTED_AGENT_HELPER" validate || die "Supported-agent registry validation failed."
 }
 
 main() {
   [[ "$(uname -s)" == "Darwin" ]] || die "This harness is validated for macOS only."
   require_command python3
   require_command curl
+  [[ -f "$SUPPORTED_AGENT_HELPER" ]] || die "Missing supported-agent helper: $SUPPORTED_AGENT_HELPER"
+  SUPPORTED_AGENT_TYPES_JSON="$(python3 "$SUPPORTED_AGENT_HELPER" types)" || die "Failed to load supported-agent types."
+  INTENT_AGENTS_JSON="$(python3 "$SUPPORTED_AGENT_HELPER" list-intent)" || die "Failed to load intent agents."
+  export INTENT_AGENTS_JSON
+  validate_supported_agent_type "$AGENT_TYPE"
   validate_repos
   ensure_edamame_app
+  trap restore_capture_state EXIT
 
   : >"$REPORT_JSONL"
   log "Report dir: $REPORT_DIR"
@@ -1004,6 +1543,10 @@ main() {
     ROUND_INDEX=$((ROUND_INDEX + 1))
     log "=== Round $ROUND_INDEX ==="
 
+    if [[ "$FOCUS" == "both" ]]; then
+      ensure_capture_running
+    fi
+
     local intent_rc=0 cve_rc=0
     local -a phases=()
 
@@ -1011,7 +1554,7 @@ main() {
       phases+=("intent")
       if ! run_intent_suite; then intent_rc=1; ANY_FAILURE=1; fi
       if [[ "$intent_rc" -ne 0 ]]; then
-        warn "Intent leg exits: claude_code=${INTENT_CLAUDE_CODE_EXIT} (${INTENT_CLAUDE_CODE_SEC}s) openclaw=${INTENT_OPENCLAW_EXIT} (${INTENT_OPENCLAW_SEC}s) cursor=${INTENT_CURSOR_EXIT} (${INTENT_CURSOR_SEC}s) — logs: $REPORT_DIR/round_${ROUND_INDEX}_*.log diag: *_diag.json"
+        warn "Intent leg failures recorded for round ${ROUND_INDEX}. Logs: $REPORT_DIR/round_${ROUND_INDEX}_*.log diag: *_diag.json"
       fi
     fi
 
@@ -1047,6 +1590,7 @@ now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isofor
 phases = json.loads(os.environ["HARNESS_PHASES_JSON"])
 rd = Path(os.environ["HARNESS_REPORT_DIR"])
 r = os.environ["HARNESS_ROUND"]
+intent_agents = json.loads(os.environ.get("INTENT_AGENTS_JSON", "[]"))
 
 intent_legs = None
 intent_first_failure = None
@@ -1074,7 +1618,8 @@ if "intent" in phases:
         "strict_hash_check",
         "matched_contributor_hash_prefix",
     }
-    for key in ("claude_code", "openclaw", "cursor"):
+    for agent in intent_agents:
+        key = agent["agent_type"]
         stats_path = rd / f"round_{r}_{key}.stats.json"
         diag_path = rd / f"round_{r}_{key}_diag.json"
         leg = {

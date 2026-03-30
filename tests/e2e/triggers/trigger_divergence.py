@@ -72,7 +72,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--agent-type",
         default=None,
-        help="Agent type: openclaw|cursor|claude_code (default: openclaw or EDAMAME_AGENT_TYPE)",
+        help="Agent type: openclaw|cursor|claude_code|claude_desktop (default: openclaw or EDAMAME_AGENT_TYPE)",
     )
     p.add_argument("--state-dir", type=Path, default=None)
     return p.parse_args()
