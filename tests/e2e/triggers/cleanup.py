@@ -27,6 +27,7 @@ PID_FILES = [
     "credential_sprawl.pid",
     "tool_poisoning.pid",
     "supply_chain_exfil.pid",
+    "npm_rat_beacon.pid",
 ]
 
 CREATED_MARKERS = [
@@ -39,6 +40,7 @@ CREATED_MARKERS = [
     "credential_sprawl.created",
     "tool_poisoning.created",
     "supply_chain_exfil.created",
+    "npm_rat_beacon.created",
 ]
 
 

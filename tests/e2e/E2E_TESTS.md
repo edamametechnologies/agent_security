@@ -51,6 +51,7 @@ Nine scenarios, each in `triggers/trigger_<name>.py`:
 | `credential_sprawl` | `trigger_credential_sprawl.py` | OpenClaw #9627 + AMOS infostealer | token_exfiltration (multi-category credential labels) |
 | `tool_poisoning_effects` | `trigger_tool_poisoning_effects.py` | MCPTox tool poisoning (Luo et al., 2025) | token_exfiltration (HTTP POST exfil + sensitive open_files) |
 | `supply_chain_exfil` | `trigger_supply_chain_exfil.py` | [litellm 1.82.8 PyPI compromise](https://github.com/BerriAI/litellm/issues/24512) (March 2026) | credential_harvest (9-category credential + crypto harvest + HTTP POST octet-stream exfil; anomaly-independent) |
+| `npm_rat_beacon` | `trigger_npm_rat_beacon.py` | axios 1.14.1/0.30.4 npm supply chain RAT (31 March 2026) | token_exfiltration (Base64 JSON beacon + legacy IE UA + npm credential open_files) |
 
 ## Orchestration Scripts
 

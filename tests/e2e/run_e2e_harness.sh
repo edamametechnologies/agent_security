@@ -765,6 +765,7 @@ scenario_expected_check() {
     credential_sprawl)       echo "token_exfiltration" ;;
     tool_poisoning_effects)  echo "token_exfiltration" ;;
     supply_chain_exfil)      echo "credential_harvest" ;;
+    npm_rat_beacon)          echo "token_exfiltration" ;;
     *)                       echo "" ;;
   esac
 }

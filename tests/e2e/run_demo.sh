@@ -234,6 +234,7 @@ SCENARIOS=(
   "credential_sprawl"
   "tool_poisoning_effects"
   "supply_chain_exfil"
+  "npm_rat_beacon"
 )
 
 log() {
