@@ -1,0 +1,43 @@
+{
+  "timestamp": "2026-03-31T18:25:50Z",
+  "edamame_version": "1.1.4",
+  "kernel": "6.8.0-106-generic",
+  "arch": "aarch64",
+  "vcpus": 4,
+  "total_ram_mib": 3904,
+  "vm_driver": "vz",
+  "sample_interval_s": 5,
+  "sample_count": 12,
+  "phases": [
+    {
+      "phase": "idle",
+      "cpu_pct": 0.83,
+      "rss_mib": 497,
+      "vmsize_mib": 1932,
+      "vmpeak_mib": 1950,
+      "threads": 16
+    },
+    {
+      "phase": "active",
+      "cpu_pct": 0.55,
+      "rss_mib": 498,
+      "vmsize_mib": 1932,
+      "vmpeak_mib": 1950,
+      "threads": 16
+    },
+    {
+      "phase": "load",
+      "cpu_pct": 1.37,
+      "rss_mib": 499,
+      "vmsize_mib": 1932,
+      "vmpeak_mib": 1950,
+      "threads": 16
+    }
+  ],
+  "notes": {
+    "hypervisor": "Lima 2.0.3 with Apple Virtualization.framework (VZ) on macOS aarch64",
+    "vz_cpu_overhead_estimate": "3-8% for compute workloads (Apple developer documentation and community benchmarks)",
+    "bare_metal_correction": "VM CPU% x 0.95 (midpoint conservative estimate for VZ overhead)",
+    "memory_correction": "none -- VZ uses direct memory mapping, no balloon driver"
+  }
+}

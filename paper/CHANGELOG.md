@@ -1,5 +1,20 @@
 # Paper Changelog
 
+## 2026-03-31
+
+#### New content
+
+- Added Section 7.10 (Observer Resource Footprint): CPU and memory measurements of `edamame-posture` 1.1.4 on the benchmark Lima VM (4 vCPU / 4 GiB, Ubuntu 24.04, aarch64). Three phases (idle/active/load) measured with `pidstat`. Bare-metal CPU estimates extrapolated from VZ hypervisor overhead. EDR comparison context included.
+- New artifact: `artifacts/footprint-summary.json`.
+- New script: `scripts/measure_footprint.sh`.
+
+#### Editorial changes
+
+- Authors changed from `Frank Lyonnet, Antoine Clerget` to `Frank Lyonnet, Antoine Clerget, Kave Salamatian`.
+- Section 12 (Author Disclosure) updated to describe Kave Salamatian's affiliation (Université Savoie Mont Blanc, France) and confirm no competing interest with EDAMAME Technologies.
+- Introduction: added paragraph previewing the three-loop system-plane decomposition, framing loops 2 and 3 as traditional EDR-style capabilities.
+- Section 3: reinforced EDR framing for vulnerability/safety-floor and advisor/remediation loops.
+
 ## 2026-03-12
 
 ### Compared with the last committed paper (`HEAD`)

@@ -2,7 +2,7 @@
 
 ## A Practical Two-Plane Approach for OpenClaw-Class Agents
 
-Authors: Frank Lyonnet, Antoine Clerget  
+Authors: Frank Lyonnet, Antoine Clerget, Kave Salamatian  
 Status: arXiv draft (not submitted)  
 Version: 2026-03-17  
 
@@ -93,6 +93,23 @@ includes natively, while the AI platform provides the runtime observation
 surface (session transcripts, memory, tool invocation history) that no external
 monitor can access alone. Neither plane is sufficient in isolation; the
 two-plane correlation is the necessary security primitive.
+
+The core model claim is two-plane correlation. In the reference instantiation,
+the system plane decomposes into three adjacent runtime loops (Section 3).
+The first -- the **divergence / intent loop** -- is the paper's primary
+contribution: it correlates a merged behavioral model against
+process-attributed telemetry and flags observations not explained by declared
+intent. The remaining two loops address capabilities that are closer to
+traditional EDR (endpoint detection and response) than to intent correlation:
+a **vulnerability / safety-floor loop** that evaluates model-independent
+guardrail findings (for example `/tmp` lineage, credential-file-plus-egress,
+and exposed-listener detectors) even when no behavioral model exists, and an
+**advisor / remediation loop** that groups posture, breach, and LAN findings
+into operator-facing todos and reversible actions. These two loops complement
+the intent-correlation contribution but are not themselves novel; their
+inclusion ensures that the system plane provides useful security coverage even
+before a behavioral model is available.
+
 By design, this first-generation rule set has a blind spot for living-off-the-land
 behavior when both process and destination are already authorized; we surface
 that limitation explicitly in Sections 7 and 9.
@@ -386,7 +403,8 @@ instantiation:
 
 1. **Divergence / intent loop.** Correlates the merged behavioral model against
    raw process-attributed telemetry and emits intent-relative evidence when
-   observations are not explained by declared behavior.
+   observations are not explained by declared behavior. This is the loop that
+   realizes the two-plane model contribution.
 2. **Vulnerability / safety-floor loop.** Evaluates model-independent guardrail
    findings and runtime incident checks (for example `/tmp` lineage,
    credential-file-plus-egress, exposed listeners, and other vulnerability
@@ -394,6 +412,11 @@ instantiation:
 3. **Advisor / remediation loop.** Groups posture, breach, LAN, and
    high-confidence telemetry findings into operator-facing todos and reversible
    actions.
+
+Loops 2 and 3 are closer to traditional endpoint-detection-and-response (EDR)
+capabilities than to intent correlation; they are included so the system plane
+provides useful security coverage even before a behavioral model is available,
+but they are not the paper's novel contribution.
 
 This separation is deliberate: telemetry confidence labels such as
 `anomalous` or `blacklisted` are useful operational signals, but they are not
@@ -1395,6 +1418,48 @@ correlation protocol and telemetry surface, not superiority. Direct comparison
 requires adapting either the harness for interception-style monitors or those
 systems for MCP telemetry (Section 9.2).
 
+### 7.10 Observer Resource Footprint
+
+We measured EDAMAME Posture's CPU and memory footprint on the same 4 vCPU /
+4 GiB Lima VM used for the benchmark evaluation (Ubuntu 24.04, kernel
+6.8.0-106, aarch64, edamame-posture 1.1.4 installed via APT). Sampling used
+`pidstat` at 5 s intervals over 60 s per phase, with `/proc/<pid>/status` for
+memory snapshots. Three phases were measured: **idle** (daemon running with
+eBPF-backed packet capture but no behavioral model or divergence engine
+activity), **active** (behavioral model pushed, divergence engine correlating),
+and **load** (active engine plus concurrent benign HTTPS traffic to multiple
+external hosts).
+
+| Phase | CPU % (VM) | CPU % (bare-metal est.) | RSS (MiB) | VmSize (MiB) | Threads |
+|---|---|---|---|---|---|
+| Idle | 0.83 | 0.79 | 497 | 1932 | 16 |
+| Active | 0.55 | 0.52 | 498 | 1932 | 16 |
+| Load | 1.37 | 1.30 | 499 | 1932 | 16 |
+
+The VM runs under Lima 2.0.3 with Apple Virtualization.framework (VZ) on
+macOS/aarch64. VZ uses a thin hypervisor with hardware-assisted paravirtual
+I/O and direct memory mapping (no balloon driver). Published benchmarks and
+Apple developer documentation place VZ CPU overhead at 3--8% for
+compute-bound workloads; memory overhead is negligible because guest pages map
+directly to host physical memory without a software translation layer. We
+apply a conservative 5% correction (reported VM CPU% x 0.95) for the
+bare-metal estimates in the table. This is an extrapolation, not a measured
+bare-metal result; readers should treat the VM column as the primary
+measurement.
+
+For context, widely deployed Linux EDR agents report comparable or higher
+baseline footprints: CrowdStrike Falcon sensor typically uses 1--5% CPU and
+200--500 MiB RSS depending on policy and telemetry volume; Elastic Agent
+reports 150--300 MiB RSS at idle. EDAMAME Posture's ~500 MiB RSS includes the
+eBPF-backed network session capture engine (flodbadd), Layer-7 process
+attribution, the agentic divergence engine with LLM integration, posture
+scoring, and the MCP server -- a broader functional surface than a pure
+detection agent. Virtual memory (VmSize) is dominated by the Rust async
+runtime pre-allocated arena and is not indicative of physical memory pressure.
+
+Artifact: `artifacts/footprint-summary.json`; reproduction script:
+`scripts/measure_footprint.sh`.
+
 ## 8. Reproducibility
 
 All source code, benchmark scenarios, harness scripts, and canonical run
@@ -1757,16 +1822,20 @@ be evaluated with trace-backed scenarios.
 
 ## 12. Author Disclosure and Competing Interests
 
-All two authors have financial relationships with EDAMAME Technologies
-(founder, board member respectively). The bounding argument is that
-the evaluation target is the correlation method over published artifacts, not
+Frank Lyonnet and Antoine Clerget have financial relationships with EDAMAME
+Technologies (founder and board member respectively). Kave Salamatian is a
+professor at Université Savoie Mont Blanc, France, and has no financial
+relationship with EDAMAME Technologies. The bounding argument is that the
+evaluation target is the correlation method over published artifacts, not
 proprietary internals, and that independent replication is practically enabled
 by open code, trace-level evidence, and observer replaceability.
 
 Frank Lyonnet is the founder of EDAMAME Technologies, the company that
 develops EDAMAME Posture. This paper evaluates EDAMAME Posture as the
 system-plane observer -- a core architectural dependency. Antoine Clerget
-is a board member of EDAMAME Technologies.
+is a board member of EDAMAME Technologies. Kave Salamatian is a professor at
+Université Savoie Mont Blanc and contributed to the architectural framing
+and evaluation methodology; he has no competing interest.
 
 To bound this conflict: (a) the observer is treated as a black-box telemetry
 provider, not the evaluation target; (b) decision rules, scenarios, harness,

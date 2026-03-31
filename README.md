@@ -2,7 +2,7 @@
 
 **"Runtime Security for Agentic Systems: A Practical Two-Plane Approach for OpenClaw-Class Agents"**
 
-Authors: Frank Lyonnet, Antoine Clerget
+Authors: Frank Lyonnet, Antoine Clerget, Kave Salamatian
 
 This repository contains the arXiv draft, figure generation pipeline, and
 publication artifacts for the two-plane runtime security paper.
