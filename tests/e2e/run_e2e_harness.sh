@@ -281,22 +281,44 @@ ensure_capture_running() {
 }
 
 restore_capture_state() {
-  if [[ "$DRY_RUN" -eq 1 || "$CAPTURE_STARTED_BY_HARNESS" -ne 1 ]]; then
+  if [[ "$DRY_RUN" -eq 1 ]]; then
     return 0
   fi
 
-  local cli_bin running
+  log "Harness teardown: killing leaked probe processes"
+  pkill -f sandbox_probe 2>/dev/null || true
+  pkill -f divergence_probe 2>/dev/null || true
+
+  log "Harness teardown: running injector cleanup for all agent types"
+  local cleanup_path="$TRIGGERS_DIR/cleanup.py"
+  if [[ -f "$cleanup_path" ]]; then
+    for at in openclaw cursor claude_code claude_desktop; do
+      python3 "$cleanup_path" --agent-type "$at" 2>/dev/null || true
+    done
+  fi
+
+  log "Harness teardown: clearing vulnerability history"
+  local cli_bin
+  if cli_bin="$(find_edamame_cli_bin 2>/dev/null)"; then
+    "$cli_bin" rpc clear_vulnerability_history >/dev/null 2>&1 || true
+  fi
+
+  if [[ "$CAPTURE_STARTED_BY_HARNESS" -ne 1 ]]; then
+    return 0
+  fi
+
+  log "Harness teardown: stopping packet capture started by harness"
   if ! cli_bin="$(find_edamame_cli_bin)"; then
     warn "Could not restore capture state: edamame_cli not found"
     return 0
   fi
 
-  log "Capture restore: stopping packet capture started by harness"
   if ! "$cli_bin" rpc stop_capture >/dev/null 2>&1; then
     warn "Failed to stop packet capture started by harness"
     return 0
   fi
 
+  local running
   running="$(capture_running_flag)"
   if [[ "$running" == "1" ]]; then
     warn "Packet capture still reports running after stop_capture"
@@ -506,7 +528,7 @@ wait_for_divergence_model_ready() {
   if [[ "$DRY_RUN" -eq 1 ]]; then return 0; fi
 
   local waited=0
-  local max_wait=$((DIVERGENCE_MODEL_MIN_AGE_SECS + 60))
+  local max_wait=$((DIVERGENCE_MODEL_MIN_AGE_SECS * 4))
   while ((waited <= max_wait)); do
     local status
     status="$(python3 -c "
@@ -532,6 +554,411 @@ print(f'{int(age or 0)}|{int(contrib or 0)}|{1 if running else 0}')
 
   warn "Divergence model did not reach ready age after ${max_wait}s"
   return 1
+}
+
+divergence_semantic_status_for_scenario() {
+  local scenario="$1"
+  TRIGGERS_PATH="$TRIGGERS_DIR" python3 - "$scenario" "$DIVERGENCE_MODEL_MIN_AGE_SECS" <<'PYEOF'
+import os, sys
+sys.path.insert(0, os.environ["TRIGGERS_PATH"])
+from _edamame_cli import cli_rpc
+
+scenario = sys.argv[1].strip()
+min_age = int(sys.argv[2])
+
+expected_prefixes = {
+    "divergence": ["1.0.0.1:", "one.one.one.one:"],
+    "goal_drift": ["1.1.1.1:", "one.one.one.one:"],
+}.get(scenario, [])
+
+summary = cli_rpc("get_divergence_verdict")
+status = cli_rpc("get_divergence_engine_status")
+sessions = cli_rpc("get_current_sessions")
+
+probe_active = 0
+for session in sessions if isinstance(sessions, list) else []:
+    if not isinstance(session, dict):
+        continue
+    l7 = session.get("l7") or {}
+    process_path = str(l7.get("process_path") or "")
+    active = bool((session.get("status") or {}).get("active"))
+    if process_path.endswith("/divergence_probe") and active:
+        probe_active += 1
+
+verdict = str(summary.get("verdict") or "").strip().upper()
+decision_source = str(summary.get("decision_source") or "").strip()
+trace_available = summary.get("trace_available")
+entry_id = str(summary.get("entry_id") or "").strip()
+evidence = summary.get("evidence") or []
+categories = sorted(
+    {
+        str(item.get("category") or "").strip()
+        for item in evidence
+        if isinstance(item, dict) and str(item.get("category") or "").strip()
+    }
+)
+descriptions = [
+    str(item.get("description") or "")
+    for item in evidence
+    if isinstance(item, dict)
+]
+
+running = bool(status.get("running")) if isinstance(status, dict) else False
+contributors = int(status.get("contributor_count") or 0) if isinstance(status, dict) else 0
+age = int(status.get("model_age_secs") or 0) if isinstance(status, dict) else 0
+
+category_ok = "correlation:not_expected" in categories
+description_ok = True if not expected_prefixes else any(
+    prefix in description
+    for prefix in expected_prefixes
+    for description in descriptions
+)
+trace_ok = isinstance(trace_available, bool) and (not trace_available or bool(entry_id))
+decision_ok = bool(decision_source)
+
+confirmed_decision = decision_source in (
+    "LlmConfirmed", "Deterministic", "LlmOverride",
+)
+age_ok = age >= min_age or (verdict == "DIVERGENCE" and confirmed_decision)
+
+ok = all(
+    [
+        verdict == "DIVERGENCE",
+        probe_active > 0,
+        running,
+        contributors > 0,
+        age_ok,
+        category_ok,
+        description_ok,
+        trace_ok,
+        decision_ok,
+    ]
+)
+
+message = (
+    "verdict={} probe_active={} model_age={}s contributors={} running={} "
+    "decision_source={} trace_available={} categories={} entry_id={}"
+).format(
+    verdict or "NONE", probe_active, age, contributors, int(running),
+    decision_source or "NONE", trace_available,
+    ",".join(categories) if categories else "none",
+    entry_id or "missing",
+)
+print(("OK" if ok else "WAIT") + "|" + message)
+PYEOF
+}
+
+assert_divergence_verdict_state() {
+  local label="$1"
+  local expected_verdict="$2"
+  local min_contributors="$3"
+  local min_model_age="$4"
+
+  local verdict_status
+  verdict_status="$(TRIGGERS_PATH="$TRIGGERS_DIR" python3 - "$expected_verdict" "$min_contributors" "$min_model_age" <<'PYEOF'
+import os, sys
+sys.path.insert(0, os.environ["TRIGGERS_PATH"])
+from _edamame_cli import cli_rpc
+
+expected = sys.argv[1].strip().upper()
+min_contributors = int(sys.argv[2])
+min_model_age = int(sys.argv[3])
+
+summary = cli_rpc("get_divergence_verdict")
+status = cli_rpc("get_divergence_engine_status")
+history = cli_rpc("get_divergence_history", "[5]")
+history = history if isinstance(history, list) else []
+
+verdict = str(summary.get("verdict") or "").strip().upper()
+entry_id = str(summary.get("entry_id") or "").strip()
+trace_available = summary.get("trace_available")
+running = bool(status.get("running")) if isinstance(status, dict) else False
+contributors = int(status.get("contributor_count") or 0) if isinstance(status, dict) else 0
+model_age = int(status.get("model_age_secs") or 0) if isinstance(status, dict) else 0
+
+history_ids = set()
+for h in history:
+    if isinstance(h, dict):
+        hid = str(h.get("entry_id") or "").strip()
+        if hid:
+            history_ids.add(hid)
+
+entry_in_history = bool(entry_id) and entry_id in history_ids
+age_ok = model_age >= min_model_age or verdict == expected
+
+ok = all(
+    [
+        verdict == expected,
+        bool(entry_id),
+        running,
+        contributors >= min_contributors,
+        age_ok,
+        entry_in_history,
+        isinstance(trace_available, bool),
+    ]
+)
+
+history_entry_id = ""
+if history and isinstance(history[0], dict):
+    history_entry_id = str(history[0].get("entry_id") or "").strip()
+
+message = (
+    "verdict={} entry_id={} running={} contributors={} age={}s "
+    "trace_available={} entry_in_history={} history_entry_id={}"
+).format(
+    verdict or "NONE", entry_id or "missing", int(running), contributors,
+    model_age, trace_available, int(entry_in_history),
+    history_entry_id or "missing",
+)
+print(("OK" if ok else "FAIL") + "|" + message)
+PYEOF
+)"
+
+  local status="${verdict_status%%|*}"
+  local message="${verdict_status#*|}"
+  if [[ "$status" == "OK" ]]; then
+    log "  $label: $message"
+    return 0
+  fi
+
+  warn "  $label failed: $message"
+  return 1
+}
+
+run_divergence_engine_state_checks() {
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "Divergence state suite: [DRY-RUN] no-model, clean, stale, dismissal, debug-trace"
+    return 0
+  fi
+
+  log "Running divergence engine state suite"
+  local rc=0
+
+  TRIGGERS_PATH="$TRIGGERS_DIR" python3 - <<'PYEOF' >/dev/null 2>&1 || true
+import os, sys
+sys.path.insert(0, os.environ["TRIGGERS_PATH"])
+from _edamame_cli import cli_rpc
+cli_rpc("clear_divergence_state")
+cli_rpc("clear_divergence_history")
+cli_rpc("start_divergence_engine", "[true, 300]")
+cli_rpc("clear_behavioral_model")
+cli_rpc("debug_run_divergence_tick")
+PYEOF
+
+  if ! assert_divergence_verdict_state "NoModel state" "NOMODEL" 0 0; then
+    rc=1
+    if [[ "$STRICT" -eq 1 ]]; then
+      return 1
+    fi
+  fi
+
+  python3 "$TRIGGERS_DIR/_edamame_cli.py" clear_divergence_state >/dev/null 2>&1 || true
+  python3 "$TRIGGERS_DIR/_edamame_cli.py" clear_divergence_history >/dev/null 2>&1 || true
+  ensure_divergence_harness_ready || return 1
+  wait_for_divergence_model_ready || return 1
+  python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_divergence_tick >/dev/null 2>&1 || true
+  if ! assert_divergence_verdict_state "Clean state" "CLEAN" 1 "$DIVERGENCE_MODEL_MIN_AGE_SECS"; then
+    rc=1
+    if [[ "$STRICT" -eq 1 ]]; then
+      return 1
+    fi
+  fi
+
+  if ! TRIGGERS_PATH="$TRIGGERS_DIR" STATE_AGENT_TYPE="$AGENT_TYPE" python3 - <<'PYEOF'
+import datetime, json, os, sys
+sys.path.insert(0, os.environ["TRIGGERS_PATH"])
+from _edamame_cli import cli_rpc
+
+real_agent_type = os.environ["STATE_AGENT_TYPE"]
+agent_type = "benchmark"
+agent_instance_id = "e2e-divergence-stale-state-{}".format(real_agent_type)
+now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+stale_ingested = now - datetime.timedelta(minutes=30)
+
+window = {
+    "window_start": (now - datetime.timedelta(minutes=35)).isoformat().replace("+00:00", "Z"),
+    "window_end": (now - datetime.timedelta(minutes=34)).isoformat().replace("+00:00", "Z"),
+    "agent_type": agent_type,
+    "agent_instance_id": agent_instance_id,
+    "predictions": [
+        {
+            "agent_type": agent_type,
+            "agent_instance_id": agent_instance_id,
+            "session_key": "e2e_divergence_stale_state",
+            "action": "Harness divergence stale state",
+            "tools_called": ["run"],
+            "scope_process_paths": ["*/divergence_probe"],
+            "scope_parent_paths": [],
+            "scope_grandparent_paths": [],
+            "scope_any_lineage_paths": [],
+            "expected_traffic": ["api.anthropic.com:443"],
+            "expected_sensitive_files": [],
+            "expected_lan_devices": [],
+            "expected_local_open_ports": [],
+            "expected_process_paths": ["*/divergence_probe"],
+            "expected_parent_paths": [],
+            "expected_grandparent_paths": [],
+            "expected_open_files": [],
+            "expected_l7_protocols": [],
+            "expected_system_config": [],
+            "not_expected_traffic": [],
+            "not_expected_sensitive_files": [],
+            "not_expected_lan_devices": [],
+            "not_expected_local_open_ports": [],
+            "not_expected_process_paths": [],
+            "not_expected_parent_paths": [],
+            "not_expected_grandparent_paths": [],
+            "not_expected_open_files": [],
+            "not_expected_l7_protocols": [],
+            "not_expected_system_config": [],
+            "raw_input": None,
+        }
+    ],
+    "contributors": [],
+    "version": "e2e/divergence-stale-state",
+    "hash": "",
+    "ingested_at": stale_ingested.isoformat().replace("+00:00", "Z"),
+}
+
+cli_rpc("clear_behavioral_model")
+cli_rpc("clear_divergence_state")
+cli_rpc("clear_divergence_history")
+cli_rpc("start_divergence_engine", "[true, 300]")
+cli_rpc("upsert_behavioral_model", json.dumps({"window_json": json.dumps(window)}))
+cli_rpc("debug_run_divergence_tick")
+PYEOF
+  then
+    warn "  Failed to seed stale divergence state model"
+    rc=1
+    if [[ "$STRICT" -eq 1 ]]; then
+      return 1
+    fi
+  else
+    if ! assert_divergence_verdict_state "Stale state" "STALE" 1 1200; then
+      rc=1
+      if [[ "$STRICT" -eq 1 ]]; then
+        return 1
+      fi
+    fi
+  fi
+
+  if ! prepare_scenario_baseline "divergence" "divergence_verdict"; then
+    warn "  Failed to prepare divergence state roundtrip baseline"
+    rc=1
+    if [[ "$STRICT" -eq 1 ]]; then
+      return 1
+    fi
+  else
+    INJECTOR_PID=""
+    run_injector "divergence" "$DIVERGENCE_DURATION"
+    wait_for_detection_readiness "divergence" "divergence_verdict" 60 || true
+    python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_divergence_tick >/dev/null 2>&1 || true
+
+    local roundtrip_status
+    roundtrip_status="$(TRIGGERS_PATH="$TRIGGERS_DIR" python3 - <<'PYEOF'
+import json, os, sys
+sys.path.insert(0, os.environ["TRIGGERS_PATH"])
+from _edamame_cli import cli_rpc
+
+summary = cli_rpc("get_divergence_verdict")
+history = cli_rpc("get_divergence_history", "[5]")
+history = history if isinstance(history, list) else []
+
+verdict = str(summary.get("verdict") or "").strip().upper()
+entry_id = str(summary.get("entry_id") or "").strip()
+trace_available = bool(summary.get("trace_available"))
+evidence = summary.get("evidence") or []
+finding_key = ""
+for item in evidence:
+    if not isinstance(item, dict):
+        continue
+    finding_key = str(item.get("finding_key") or "").strip()
+    if finding_key:
+        break
+
+trace_ok = True
+trace_state = "not_requested"
+if trace_available and entry_id:
+    trace = cli_rpc("get_divergence_debug_trace", json.dumps([entry_id]))
+    trace_ok = isinstance(trace, dict) and isinstance(trace.get("telemetry_snapshot"), dict)
+    trace_state = "present" if trace_ok else "invalid"
+elif entry_id:
+    trace = cli_rpc("get_divergence_debug_trace", json.dumps([entry_id]))
+    trace_ok = isinstance(trace, dict) and trace.get("trace") is None
+    trace_state = "retention_disabled" if trace_ok else "unexpected"
+
+dismiss_ok = False
+undismiss_ok = False
+history_ok = False
+
+if verdict == "DIVERGENCE" and entry_id and finding_key:
+    dismiss = cli_rpc("dismiss_divergence_evidence", json.dumps([finding_key]))
+    after_dismiss = cli_rpc("get_divergence_verdict")
+    after_dismiss_evidence = after_dismiss.get("evidence") or []
+    dismiss_ok = bool(dismiss.get("success")) and any(
+        isinstance(item, dict)
+        and str(item.get("finding_key") or "").strip() == finding_key
+        and bool(item.get("dismissed"))
+        for item in after_dismiss_evidence
+    )
+
+    undismiss = cli_rpc("undismiss_divergence_evidence", json.dumps([finding_key]))
+    after_undismiss = cli_rpc("get_divergence_verdict")
+    after_undismiss_evidence = after_undismiss.get("evidence") or []
+    undismiss_ok = bool(undismiss.get("success")) and any(
+        isinstance(item, dict)
+        and str(item.get("finding_key") or "").strip() == finding_key
+        and not bool(item.get("dismissed"))
+        for item in after_undismiss_evidence
+    )
+
+    history_ids = set()
+    for h in history:
+        if isinstance(h, dict):
+            hid = str(h.get("entry_id") or "").strip()
+            if hid:
+                history_ids.add(hid)
+    history_ok = bool(entry_id) and entry_id in history_ids
+
+ok = all(
+    [
+        verdict == "DIVERGENCE",
+        bool(entry_id),
+        bool(finding_key),
+        dismiss_ok,
+        undismiss_ok,
+        trace_ok,
+        history_ok,
+    ]
+)
+message = (
+    "verdict={} entry_id={} finding_key={} dismiss_ok={} "
+    "undismiss_ok={} trace_state={} history_ok={}"
+).format(
+    verdict or "NONE", entry_id or "missing", finding_key or "missing",
+    int(dismiss_ok), int(undismiss_ok), trace_state, int(history_ok),
+)
+print(("OK" if ok else "FAIL") + "|" + message)
+PYEOF
+)"
+
+    stop_injector
+    run_injector_cleanup
+
+    local roundtrip_state="${roundtrip_status%%|*}"
+    local roundtrip_message="${roundtrip_status#*|}"
+    if [[ "$roundtrip_state" == "OK" ]]; then
+      log "  Dismissal/debug-trace roundtrip: $roundtrip_message"
+    else
+      warn "  Dismissal/debug-trace roundtrip failed: $roundtrip_message"
+      rc=1
+      if [[ "$STRICT" -eq 1 ]]; then
+        return 1
+      fi
+    fi
+  fi
+
+  return "$rc"
 }
 
 merge_snapshot_json() {
@@ -1205,39 +1632,15 @@ print(len(active))
         ;;
 
       divergence_verdict)
-        local verdict_status verdict probe_active model_age contributor_count engine_running
-        verdict_status="$(python3 -c "
-import sys; sys.path.insert(0, '$TRIGGERS_DIR')
-from _edamame_cli import cli_rpc
-v = cli_rpc('get_divergence_verdict')
-status = cli_rpc('get_divergence_engine_status')
-sessions = cli_rpc('get_current_sessions')
-probe_active = 0
-for session in sessions:
-    if not isinstance(session, dict):
-        continue
-    l7 = session.get('l7') or {}
-    if (l7.get('process_path') or '').endswith('/divergence_probe') and (session.get('status') or {}).get('active'):
-        probe_active += 1
-verdict = v.get('verdict') if isinstance(v, dict) else None
-age = status.get('model_age_secs') if isinstance(status, dict) else 0
-contrib = status.get('contributor_count') if isinstance(status, dict) else 0
-running = bool(status.get('running')) if isinstance(status, dict) else False
-print(f\"{'NONE' if verdict is None else str(verdict).strip().upper()}|{probe_active}|{int(age or 0)}|{int(contrib or 0)}|{1 if running else 0}\")
-" 2>/dev/null || echo "UNKNOWN|0|0|0|0")"
-        verdict="${verdict_status%%|*}"
-        local verdict_rest="${verdict_status#*|}"
-        probe_active="${verdict_rest%%|*}"
-        verdict_rest="${verdict_rest#*|}"
-        model_age="${verdict_rest%%|*}"
-        verdict_rest="${verdict_rest#*|}"
-        contributor_count="${verdict_rest%%|*}"
-        engine_running="${verdict_rest#*|}"
-        if [[ "$verdict" == "DIVERGENCE" ]]; then
-          log "  DETECTED: divergence verdict=$verdict probe_active=$probe_active"
+        local verdict_status divergence_state divergence_message
+        verdict_status="$(divergence_semantic_status_for_scenario "$scenario" 2>/dev/null || echo "WAIT|semantic probe failed")"
+        divergence_state="${verdict_status%%|*}"
+        divergence_message="${verdict_status#*|}"
+        if [[ "$divergence_state" == "OK" ]]; then
+          log "  DETECTED: $divergence_message"
           detected=1
         else
-          log "  Divergence status: verdict=$verdict probe_active=$probe_active model_age=${model_age}s contributors=$contributor_count running=$engine_running"
+          log "  Divergence status: $divergence_message"
         fi
         ;;
 
@@ -1367,7 +1770,7 @@ print(f\"{'NONE' if verdict is None else str(verdict).strip().upper()}|{probe_ac
 
 run_cve_suite() {
   local scenario duration rc=0
-  local scenarios=(blacklist_comm cve_token_exfil cve_sandbox_escape divergence memory_poisoning goal_drift credential_sprawl tool_poisoning_effects supply_chain_exfil)
+  local scenarios=(blacklist_comm cve_token_exfil cve_sandbox_escape divergence memory_poisoning goal_drift credential_sprawl tool_poisoning_effects supply_chain_exfil npm_rat_beacon)
   ensure_capture_running
   run_injector_cleanup
   for scenario in "${scenarios[@]}"; do
@@ -1424,6 +1827,11 @@ run_cve_suite() {
     run_injector_cleanup
     if [[ "$CVE_COOLDOWN" -gt 0 ]]; then run_cmd sleep "$CVE_COOLDOWN"; fi
   done
+
+  if ! run_divergence_engine_state_checks; then
+    rc=1
+  fi
+
   return "$rc"
 }
 

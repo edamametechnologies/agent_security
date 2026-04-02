@@ -416,19 +416,26 @@ load_registry_context() {
 }
 
 cleanup_demo_state() {
+  pkill -f sandbox_probe 2>/dev/null || true
+  pkill -f divergence_probe 2>/dev/null || true
+
   local cleanup_script="$TRIGGERS_DIR/cleanup.py"
-  if [[ ! -f "$cleanup_script" ]]; then
-    return 0
+  if [[ -f "$cleanup_script" ]]; then
+    local at
+    while IFS= read -r at; do
+      [[ -n "$at" ]] || continue
+      if [[ "$DRY_RUN" -eq 1 ]]; then
+        echo "+ python3 $cleanup_script --agent-type $at"
+      else
+        python3 "$cleanup_script" --agent-type "$at" >/dev/null 2>&1 || true
+      fi
+    done < <(emit_supported_agent_types)
   fi
-  local at
-  while IFS= read -r at; do
-    [[ -n "$at" ]] || continue
-    if [[ "$DRY_RUN" -eq 1 ]]; then
-      echo "+ python3 $cleanup_script --agent-type $at"
-    else
-      python3 "$cleanup_script" --agent-type "$at" >/dev/null 2>&1 || true
-    fi
-  done < <(emit_supported_agent_types)
+
+  local cli_bin
+  if cli_bin="$(find_edamame_cli_bin 2>/dev/null)"; then
+    "$cli_bin" rpc clear_vulnerability_history >/dev/null 2>&1 || true
+  fi
 }
 
 trap cleanup_demo_state EXIT INT TERM
