@@ -38,7 +38,7 @@ simulate real-world attack patterns (network egress, credential access,
 process behavior) while `edamame_cli` verifies that EDAMAME detects and
 classifies the resulting activity.
 
-Nine scenarios, each in `triggers/trigger_<name>.py`:
+Eleven scenarios, each in `triggers/trigger_<name>.py`:
 
 | Scenario | Trigger script | Threat model | Detection mechanism |
 |----------|---------------|--------------|---------------------|
@@ -52,13 +52,14 @@ Nine scenarios, each in `triggers/trigger_<name>.py`:
 | `tool_poisoning_effects` | `trigger_tool_poisoning_effects.py` | MCPTox tool poisoning (Luo et al., 2025) | token_exfiltration (HTTP POST exfil + sensitive open_files) |
 | `supply_chain_exfil` | `trigger_supply_chain_exfil.py` | [litellm 1.82.8 PyPI compromise](https://github.com/BerriAI/litellm/issues/24512) (March 2026) | credential_harvest (9-category credential + crypto harvest + HTTP POST octet-stream exfil; anomaly-independent) |
 | `npm_rat_beacon` | `trigger_npm_rat_beacon.py` | axios 1.14.1/0.30.4 npm supply chain RAT (31 March 2026) | token_exfiltration (Base64 JSON beacon + legacy IE UA + npm credential open_files) |
+| `file_events` | `trigger_file_events.py` | CVE-2025-30066 file system tampering (tj-actions/changed-files) | file_system_tampering (FIM sensitive file create/modify + temp directory file creation) |
 
 ## Orchestration Scripts
 
 ### `run_demo.sh`
 
 Full interactive demo orchestrator. Provisions packages, seeds behavioral
-models with real agent activity, then cycles through all 9 CVE scenarios
+models with real agent activity, then cycles through all 11 CVE scenarios
 with `edamame_cli` baseline capture and recovery verification. Repo paths
 for the staged packages are resolved through `supported_agents.py`, so the
 demo follows the same registry metadata as the automated harness.
@@ -156,6 +157,7 @@ Each trigger generates detectable signals on one or more channels:
 | Sensitive file access | Opens demo credential files (`~/.ssh/`, `~/.aws/`, etc.) | `SensitivePathsDB` in `flodbadd` L7 enrichment |
 | Process attribution | Trigger process appears in `l7.cmd` field | Session-to-process linkage in capture pipeline |
 | Divergence | Undeclared destinations not in behavioral model | `get_divergence_verdict` returns non-Clean verdict |
+| File integrity | Creates/modifies/deletes sensitive files in FIM-watched dirs | `get_file_events` returns events with `is_sensitive=true` |
 
 ## Verification with edamame_cli
 
@@ -171,6 +173,9 @@ The scripts use `edamame_cli rpc <method>` to verify detection. Key methods:
 | `get_divergence_verdict` | none | Current divergence classification |
 | `get_behavioral_model` | none | Current merged behavioral model |
 | `get_vulnerability_findings` | none | Vulnerability detector findings |
+| `get_file_events` | none | FIM snapshot with events, sensitive_events, monitoring status |
+| `get_file_monitor_status` | none | FIM watcher status (is_monitoring, watch_paths, event_count) |
+| `clear_file_events` | none | Clears all stored FIM events |
 
 ## Directory Layout
 
@@ -187,6 +192,8 @@ tests/e2e/
     trigger_credential_sprawl.py
     trigger_tool_poisoning_effects.py
     trigger_supply_chain_exfil.py
+    trigger_npm_rat_beacon.py
+    trigger_file_events.py
     cleanup.py
   run_demo.sh                      # Full demo orchestrator
   run_e2e_harness.sh               # Automated E2E harness

@@ -1193,6 +1193,7 @@ scenario_expected_check() {
     tool_poisoning_effects)  echo "token_exfiltration" ;;
     supply_chain_exfil)      echo "credential_harvest" ;;
     npm_rat_beacon)          echo "token_exfiltration" ;;
+    file_events)             echo "file_system_tampering" ;;
     *)                       echo "" ;;
   esac
 }
@@ -1250,6 +1251,7 @@ SCENARIO_MARKERS = {
     'memory_poisoning': ['_memory_poison', 'memory_poisoned.md'],
     'credential_sprawl': ['_sprawl_key', '_sprawl', 'demo_openclaw_sprawl'],
     'tool_poisoning_effects': ['_tool_poison', 'demo_openclaw_tool_poison'],
+    'file_events': ['_fim_test', '_fim_suspicious'],
 }
 
 SCENARIO_PORTS = {
@@ -1379,6 +1381,17 @@ print(f'{len(active)}|{candidates}|{max_labels}')
 " 2>/dev/null || echo "0|0|0"
 }
 
+fim_event_status() {
+  python3 -c "
+import sys; sys.path.insert(0, '$TRIGGERS_DIR')
+from _edamame_cli import cli_rpc
+snapshot = cli_rpc('get_file_events')
+total = snapshot.get('event_count', 0) if isinstance(snapshot, dict) else 0
+sensitive = len(snapshot.get('sensitive_events', [])) if isinstance(snapshot, dict) else 0
+print(f'{total}|{sensitive}')
+" 2>/dev/null || echo "0|0"
+}
+
 prepare_scenario_baseline() {
   local scenario="$1"
   local expected="$2"
@@ -1386,12 +1399,17 @@ prepare_scenario_baseline() {
   VERIFY_BASELINE_VULN_TOTAL=0
 
   case "$expected" in
-    token_exfiltration|sandbox_exploitation|credential_harvest)
+    token_exfiltration|sandbox_exploitation|credential_harvest|file_system_tampering)
       if [[ "$DRY_RUN" -eq 1 ]]; then
         log "  [DRY-RUN] reset vulnerability detector state for $scenario ($expected)"
         return 0
       fi
 
+      if [[ "$expected" == "file_system_tampering" ]]; then
+        python3 "$TRIGGERS_DIR/_edamame_cli.py" clear_file_events >/dev/null 2>&1 || true
+        python3 "$TRIGGERS_DIR/_edamame_cli.py" start_file_monitor '[[]]' >/dev/null 2>&1 || true
+        log "  Started FIM for file_system_tampering scenario"
+      fi
       python3 "$TRIGGERS_DIR/_edamame_cli.py" clear_vulnerability_history >/dev/null 2>&1 || true
 
       local waited=0
@@ -1567,6 +1585,46 @@ wait_for_detection_readiness() {
         waited=$((waited + sleep_for))
       done
       log "  Harvest readiness timeout for $scenario after ${max_wait}s; proceeding to verification"
+      ;;
+
+    file_system_tampering)
+      local waited=0
+      local interval=5
+      while ((waited < max_wait)); do
+        local found_status found found_current found_history
+        local fim_status fim_total fim_sensitive
+
+        found_status="$(vulnerability_finding_status_for_scenario "$scenario" "$expected")"
+        found="${found_status%%|*}"
+        local found_rest="${found_status#*|}"
+        found_current="${found_rest%%|*}"
+        found_history="${found_rest#*|}"
+        if [[ "$found" -gt "$VERIFY_BASELINE_VULN_TOTAL" ]]; then
+          log "  Detection landed during warm-up: $((found - VERIFY_BASELINE_VULN_TOTAL)) new file_system_tampering finding(s) (current=$found_current history=$found_history baseline=$VERIFY_BASELINE_VULN_TOTAL)"
+          return 0
+        fi
+
+        fim_status="$(fim_event_status)"
+        fim_total="${fim_status%%|*}"
+        fim_sensitive="${fim_status#*|}"
+        if [[ "$fim_sensitive" -gt 0 ]]; then
+          log "  FIM readiness reached for $scenario: total_events=$fim_total sensitive=$fim_sensitive"
+          return 0
+        fi
+
+        local remaining=$((max_wait - waited))
+        local sleep_for="$interval"
+        if ((remaining < interval)); then
+          sleep_for="$remaining"
+        fi
+        if ((sleep_for <= 0)); then
+          break
+        fi
+        log "  Waiting for FIM readiness: total_events=$fim_total sensitive=$fim_sensitive (${waited}/${max_wait}s)"
+        run_cmd sleep "$sleep_for"
+        waited=$((waited + sleep_for))
+      done
+      log "  FIM readiness timeout for $scenario after ${max_wait}s; proceeding to verification"
       ;;
 
     *)
@@ -1747,6 +1805,40 @@ print(len(active))
           log "  Harvest status: active_sessions=$active_sessions candidates=$harvest_candidates max_labels=$harvest_max_labels (total=$found baseline=$VERIFY_BASELINE_VULN_TOTAL)"
         fi
         ;;
+
+      file_system_tampering)
+        local found found_current found_history fim_status
+        local found_status
+        found_status="$(vulnerability_finding_status_for_scenario "$scenario" "$expected")"
+        found="${found_status%%|*}"
+        local found_rest="${found_status#*|}"
+        found_current="${found_rest%%|*}"
+        found_history="${found_rest#*|}"
+        fim_status="$(fim_event_status)"
+        local fim_total="${fim_status%%|*}"
+        local fim_sensitive="${fim_status#*|}"
+        if [[ "$found" -gt "$VERIFY_BASELINE_VULN_TOTAL" ]]; then
+          log "  DETECTED: $((found - VERIFY_BASELINE_VULN_TOTAL)) new file_system_tampering finding(s) (current=$found_current history=$found_history baseline=$VERIFY_BASELINE_VULN_TOTAL)"
+          detected=1
+        elif [[ "$fim_sensitive" -gt 0 ]]; then
+          log "  FIM sensitive events present; forcing immediate vulnerability detector tick..."
+          python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_vulnerability_detector_tick >/dev/null 2>&1 || true
+          sleep 3
+          found_status="$(vulnerability_finding_status_for_scenario "$scenario" "$expected")"
+          found="${found_status%%|*}"
+          found_rest="${found_status#*|}"
+          found_current="${found_rest%%|*}"
+          found_history="${found_rest#*|}"
+          if [[ "$found" -gt "$VERIFY_BASELINE_VULN_TOTAL" ]]; then
+            log "  DETECTED: $((found - VERIFY_BASELINE_VULN_TOTAL)) new file_system_tampering finding(s) after immediate detector tick (current=$found_current history=$found_history baseline=$VERIFY_BASELINE_VULN_TOTAL)"
+            detected=1
+          else
+            log "  FIM status: total_events=$fim_total sensitive=$fim_sensitive (total=$found baseline=$VERIFY_BASELINE_VULN_TOTAL after immediate tick)"
+          fi
+        else
+          log "  FIM status: total_events=$fim_total sensitive=$fim_sensitive (total=$found baseline=$VERIFY_BASELINE_VULN_TOTAL)"
+        fi
+        ;;
     esac
 
     if [[ "$detected" -eq 1 ]]; then
@@ -1770,7 +1862,7 @@ print(len(active))
 
 run_cve_suite() {
   local scenario duration rc=0
-  local scenarios=(blacklist_comm cve_token_exfil cve_sandbox_escape divergence memory_poisoning goal_drift credential_sprawl tool_poisoning_effects supply_chain_exfil npm_rat_beacon)
+  local scenarios=(blacklist_comm cve_token_exfil cve_sandbox_escape divergence memory_poisoning goal_drift credential_sprawl tool_poisoning_effects supply_chain_exfil npm_rat_beacon file_events)
   ensure_capture_running
   run_injector_cleanup
   for scenario in "${scenarios[@]}"; do
@@ -1785,10 +1877,11 @@ run_cve_suite() {
     case "$scenario" in
       divergence|goal_drift) l7_wait=60 ;;
       blacklist_comm) l7_wait=30 ;;
+      file_events) l7_wait=15 ;;
       *) l7_wait=120 ;;
     esac
 
-    if [[ "$expected" == "token_exfiltration" || "$expected" == "sandbox_exploitation" || "$expected" == "credential_harvest" || "$expected" == "divergence_verdict" ]]; then
+    if [[ "$expected" == "token_exfiltration" || "$expected" == "sandbox_exploitation" || "$expected" == "credential_harvest" || "$expected" == "file_system_tampering" || "$expected" == "divergence_verdict" ]]; then
       local min_duration
       min_duration=$((l7_wait + (DETECTION_VERIFY_RETRIES * DETECTION_VERIFY_INTERVAL) + 30))
       if ((duration < min_duration)); then
@@ -1825,6 +1918,12 @@ run_cve_suite() {
 
     stop_injector
     run_injector_cleanup
+
+    if [[ "$expected" == "file_system_tampering" ]]; then
+      python3 "$TRIGGERS_DIR/_edamame_cli.py" stop_file_monitor >/dev/null 2>&1 || true
+      log "  Stopped FIM after file_system_tampering scenario"
+    fi
+
     if [[ "$CVE_COOLDOWN" -gt 0 ]]; then run_cmd sleep "$CVE_COOLDOWN"; fi
   done
 

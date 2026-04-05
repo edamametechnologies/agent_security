@@ -235,6 +235,7 @@ SCENARIOS=(
   "tool_poisoning_effects"
   "supply_chain_exfil"
   "npm_rat_beacon"
+  "file_events"
 )
 
 log() {
@@ -924,6 +925,13 @@ run_demo_loop() {
       esac
 
       capture_edamame_baseline "before_${scenario}"
+
+      if [[ "$scenario" == "file_events" ]]; then
+        python3 "$TRIGGERS_DIR/_edamame_cli.py" clear_file_events >/dev/null 2>&1 || true
+        python3 "$TRIGGERS_DIR/_edamame_cli.py" start_file_monitor '[[]]' >/dev/null 2>&1 || true
+        log "Started FIM for file_events scenario"
+      fi
+
       run_injector_cleanup
       run_injector "$scenario" "$duration"
 
@@ -934,6 +942,12 @@ run_demo_loop() {
 
       post_scenario_readout "$scenario"
       run_injector_cleanup
+
+      if [[ "$scenario" == "file_events" ]]; then
+        python3 "$TRIGGERS_DIR/_edamame_cli.py" stop_file_monitor >/dev/null 2>&1 || true
+        log "Stopped FIM after file_events scenario"
+      fi
+
       wait_for_edamame_recovery "$scenario"
 
       if [[ "$COOLDOWN" -gt 0 ]]; then

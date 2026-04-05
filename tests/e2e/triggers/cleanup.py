@@ -28,6 +28,7 @@ PID_FILES = [
     "tool_poisoning.pid",
     "supply_chain_exfil.pid",
     "npm_rat_beacon.pid",
+    "file_events.pid",
 ]
 
 CREATED_MARKERS = [
@@ -41,6 +42,7 @@ CREATED_MARKERS = [
     "tool_poisoning.created",
     "supply_chain_exfil.created",
     "npm_rat_beacon.created",
+    "file_events.created",
 ]
 
 
