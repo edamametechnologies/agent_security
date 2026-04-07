@@ -56,8 +56,11 @@ Options:
   --agent-type NAME         Agent type for trigger scripts; validated against the
                             supported-agent registry. Default: openclaw
   --skip-provision          Skip package/plugin refresh and use existing installs.
-  --skip-pair               Skip OpenClaw app-mediated pairing even if no token is present.
+  --skip-pair               Skip all pairing (even auto-pair).
+  --auto-pair               Auto-approve pairing via edamame_cli RPC (no UI approval needed).
   --skip-agents             Skip Claude/OpenClaw agent prompts.
+  --skip-intent             Skip intent injection (e2e_inject_intent.sh per agent).
+  --intent-timeout SEC      Max time per intent injection script. Default: 300
   --skip-edamame-cli        Skip direct edamame_cli snapshots and verification.
   --provision-only          Refresh local installs and exit without running scenarios.
   --force-pair              Re-run OpenClaw app-mediated pairing even if ~/.edamame_psk exists.
@@ -79,9 +82,12 @@ Behavior:
   3. Sync the OpenClaw extension + skills into ~/.openclaw and enable the plugin.
   4. Reuse or request an app-issued EDAMAME MCP token via setup/pair.sh.
   5. Seed behavioral models with real package/agent activity.
-  6. Run all CVE/divergence scenarios (blacklist, token-exfil, sandbox-escape,
+  6. Inject synthetic intent via each agent's e2e_inject_intent.sh (unless --skip-intent).
+     This pushes synthetic transcripts, runs extrapolators, and verifies behavioral models
+     appear for all registered intent-capable agents.
+  7. Run all CVE/divergence scenarios (blacklist, token-exfil, sandbox-escape,
      divergence, memory-poisoning, goal-drift, credential-sprawl, tool-poisoning).
-  7. Verify every scenario with edamame_cli and wait for alert/session counts to
+  8. Verify every scenario with edamame_cli and wait for alert/session counts to
      return to the pre-scenario baseline after cleanup.
 
 Backups:
@@ -106,7 +112,10 @@ AGENT_TYPE="openclaw"
 
 SKIP_PROVISION=0
 SKIP_PAIR=0
+AUTO_PAIR=0
 SKIP_AGENTS=0
+SKIP_INTENT=0
+INTENT_TIMEOUT=300
 SKIP_EDAMAME_CLI=0
 PROVISION_ONLY=0
 FORCE_PAIR=0
@@ -167,9 +176,21 @@ while (($# > 0)); do
       SKIP_PAIR=1
       shift
       ;;
+    --auto-pair)
+      AUTO_PAIR=1
+      shift
+      ;;
     --skip-agents)
       SKIP_AGENTS=1
       shift
+      ;;
+    --skip-intent)
+      SKIP_INTENT=1
+      shift
+      ;;
+    --intent-timeout)
+      INTENT_TIMEOUT="$2"
+      shift 2
       ;;
     --skip-edamame-cli)
       SKIP_EDAMAME_CLI=1
@@ -212,11 +233,15 @@ OPENCLAW_REPO=""
 
 CURSOR_HOME="${HOME}/Library/Application Support/cursor-edamame"
 CLAUDE_HOME="${HOME}/Library/Application Support/claude-code-edamame"
+CLAUDE_DESKTOP_HOME="${HOME}/Library/Application Support/claude-desktop-edamame"
 OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
 CURSOR_CONFIG="${CURSOR_HOME}/config.json"
 CLAUDE_CONFIG="${CLAUDE_HOME}/config.json"
+CLAUDE_DESKTOP_CONFIG="${CLAUDE_DESKTOP_HOME}/config.json"
 CURSOR_PSK="${CURSOR_HOME}/state/edamame-mcp.psk"
 CLAUDE_PSK="${CLAUDE_HOME}/state/edamame-mcp.psk"
+CLAUDE_DESKTOP_PSK="${CLAUDE_DESKTOP_HOME}/state/edamame-mcp.psk"
+OPENCLAW_PAIRING_PSK="${HOME}/.openclaw/edamame-openclaw/state/edamame-mcp.psk"
 CURSOR_MCP_TARGET="${CURSOR_MCP_TARGET:-$HOME/.cursor/mcp.json}"
 OPENCLAW_PSK="${OPENCLAW_PSK:-$HOME/.edamame_psk}"
 
@@ -376,22 +401,11 @@ emit_supported_agent_types() {
     printf '%s\n' "$AGENT_TYPE"
     return 0
   fi
-  python3 "$SUPPORTED_AGENT_HELPER" types | python3 - <<'PY'
-import json
-import sys
-
-for agent_type in json.load(sys.stdin):
-    print(agent_type)
-PY
+  python3 "$SUPPORTED_AGENT_HELPER" types | python3 -c 'import json,sys; [print(t) for t in json.load(sys.stdin)]'
 }
 
 supported_agent_types_display() {
-  python3 "$SUPPORTED_AGENT_HELPER" types | python3 - <<'PY'
-import json
-import sys
-
-print(", ".join(json.load(sys.stdin)))
-PY
+  python3 "$SUPPORTED_AGENT_HELPER" types | python3 -c 'import json,sys; print(", ".join(json.load(sys.stdin)))'
 }
 
 validate_supported_agent_type() {
@@ -401,12 +415,7 @@ validate_supported_agent_type() {
 
 resolve_agent_repo() {
   local agent_type="$1"
-  python3 "$SUPPORTED_AGENT_HELPER" get-agent --agent-type "$agent_type" | python3 - <<'PY'
-import json
-import sys
-
-print(json.load(sys.stdin)["repo_path"])
-PY
+  python3 "$SUPPORTED_AGENT_HELPER" get-agent --agent-type "$agent_type" | python3 -c 'import json,sys; print(json.load(sys.stdin)["repo_path"])'
 }
 
 load_registry_context() {
@@ -450,6 +459,7 @@ validate_inputs() {
   [[ "$COOLDOWN" =~ ^[0-9]+$ ]] || die "--cooldown must be an integer"
   [[ "$VERIFY_TIMEOUT" =~ ^[0-9]+$ ]] || die "--verify-timeout must be an integer"
   [[ "$VERIFY_INTERVAL" =~ ^[0-9]+$ ]] || die "--verify-interval must be an integer"
+  [[ "$INTENT_TIMEOUT" =~ ^[0-9]+$ ]] || die "--intent-timeout must be an integer"
 }
 
 check_prereqs() {
@@ -548,31 +558,106 @@ install_openclaw_surface() {
   run_cmd openclaw plugins enable edamame || optional_failure "openclaw plugins enable edamame failed"
 }
 
+auto_pair_via_rpc() {
+  local port="${EDAMAME_MCP_PORT:-3000}"
+  local cli_bin
+  cli_bin="$(find_edamame_cli_bin 2>/dev/null)" || {
+    optional_failure "edamame_cli not found; cannot auto-pair"
+    return 1
+  }
+
+  log "Auto-pairing via HTTP + edamame_cli RPC"
+  local response request_id
+  response="$(curl -sf -X POST "http://127.0.0.1:${port}/mcp/pair" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "client_name": "E2E Demo Loop",
+      "agent_type": "openclaw",
+      "agent_instance_id": "e2e-demo-auto",
+      "requested_endpoint": "http://127.0.0.1:'"${port}"'/mcp",
+      "workspace_hint": null
+    }' 2>&1)" || {
+    optional_failure "Failed to reach MCP pair endpoint"
+    return 1
+  }
+
+  request_id="$(printf '%s' "$response" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("request_id",""))' 2>/dev/null)"
+  if [[ -z "$request_id" ]]; then
+    optional_failure "Pairing request did not return a request_id: $response"
+    return 1
+  fi
+
+  local approve_json
+  approve_json="$("$cli_bin" rpc mcp_approve_pairing "[\"${request_id}\"]" --pretty 2>&1)" || {
+    optional_failure "edamame_cli mcp_approve_pairing failed"
+    return 1
+  }
+
+  local credential
+  credential="$(printf '%s' "$approve_json" | python3 -c '
+import json, sys
+raw = json.load(sys.stdin)
+if isinstance(raw, str):
+    raw = json.loads(raw)
+print(raw.get("client", {}).get("credential", ""))
+' 2>/dev/null)"
+
+  if [[ -z "$credential" ]]; then
+    optional_failure "Auto-pair approved but no credential returned"
+    return 1
+  fi
+
+  mkdir -p "$(dirname "$OPENCLAW_PSK")"
+  printf '%s' "$credential" > "$OPENCLAW_PSK"
+  chmod 600 "$OPENCLAW_PSK"
+  log "Auto-pair credential stored in $OPENCLAW_PSK"
+  return 0
+}
+
+sync_all_psks() {
+  sync_psk "$CURSOR_PSK" || true
+  sync_psk "$CLAUDE_PSK" || true
+  sync_psk "$CLAUDE_DESKTOP_PSK" || true
+  sync_psk "$OPENCLAW_PAIRING_PSK" || true
+}
+
 ensure_pairing() {
   if [[ "$SKIP_PAIR" -eq 1 ]]; then
-    warn "Skipping OpenClaw pairing by request"
+    if [[ -f "$OPENCLAW_PSK" ]]; then
+      log "Reusing existing EDAMAME MCP credential at $OPENCLAW_PSK"
+    else
+      warn "No PSK and --skip-pair set; intent injection will fail without a PSK"
+    fi
+    sync_all_psks
     return 0
   fi
 
   if [[ "$FORCE_PAIR" -eq 0 && -f "$OPENCLAW_PSK" ]]; then
     log "Reusing existing EDAMAME MCP credential at $OPENCLAW_PSK"
+    sync_all_psks
     return 0
   fi
 
-  if ! have_command openclaw; then
-    optional_failure "Cannot pair OpenClaw surface because openclaw CLI is not installed"
+  if [[ "$AUTO_PAIR" -eq 1 ]]; then
+    log "Auto-pair requested via --auto-pair"
+    auto_pair_via_rpc || die "Auto-pair via RPC failed"
+    sync_all_psks
     return 0
   fi
 
-  log "Requesting app-mediated OpenClaw pairing"
-  run_cmd bash "$OPENCLAW_REPO/setup/pair.sh" --timeout 90
+  if have_command openclaw; then
+    log "Requesting app-mediated OpenClaw pairing"
+    run_cmd bash "$OPENCLAW_REPO/setup/pair.sh" --timeout 90
+  else
+    log "openclaw CLI not found; attempting auto-pair via RPC"
+    auto_pair_via_rpc || die "Pairing failed: neither openclaw CLI nor auto-pair succeeded"
+  fi
 
   if [[ ! -f "$OPENCLAW_PSK" ]]; then
     die "Pairing did not create $OPENCLAW_PSK"
   fi
 
-  sync_psk "$CURSOR_PSK" || true
-  sync_psk "$CLAUDE_PSK" || true
+  sync_all_psks
 }
 
 seed_cursor_model() {
@@ -593,6 +678,50 @@ seed_claude_model() {
     || optional_failure "Claude package extrapolator run failed"
   run_cmd bash "$install_root/setup/healthcheck.sh" --json \
     || optional_failure "Claude package healthcheck failed"
+}
+
+run_intent_injection() {
+  if [[ "$SKIP_INTENT" -eq 1 ]]; then
+    return 0
+  fi
+
+  local intent_json
+  intent_json="$(python3 "$SUPPORTED_AGENT_HELPER" list-intent)" || {
+    optional_failure "Could not list intent-capable agents from registry"
+    return 0
+  }
+
+  local count
+  count="$(printf '%s' "$intent_json" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')"
+  if [[ "$count" -eq 0 ]]; then
+    warn "No intent-capable agents found in registry"
+    return 0
+  fi
+
+  log "Intent injection: ${count} agent(s)"
+
+  local agent_type display_name intent_script timeout_secs
+  while IFS=$'\t' read -r agent_type display_name intent_script timeout_secs; do
+    [[ -n "$agent_type" ]] || continue
+    if [[ ! -f "$intent_script" ]]; then
+      optional_failure "Intent script not found for ${agent_type}: ${intent_script}"
+      continue
+    fi
+    local effective_timeout="${timeout_secs:-$INTENT_TIMEOUT}"
+    if [[ "$effective_timeout" -gt "$INTENT_TIMEOUT" ]]; then
+      effective_timeout="$INTENT_TIMEOUT"
+    fi
+    log "Intent injection: ${display_name} (${agent_type}, timeout=${effective_timeout}s)"
+    export E2E_POLL_ATTEMPTS=24
+    export E2E_POLL_INTERVAL_SECS=5
+    export E2E_SKIP_PROVISION_STRICT=1
+    run_timeout "$effective_timeout" bash "$intent_script" \
+      || optional_failure "Intent injection failed for ${agent_type}"
+  done < <(printf '%s' "$intent_json" | python3 -c '
+import json, sys
+for a in json.load(sys.stdin):
+    print("\t".join([a["agent_type"], a["display_name"], a["intent_script"], str(a["intent_timeout_seconds"])]))
+')
 }
 
 run_cursor_snapshot() {
@@ -705,41 +834,31 @@ edamame_cli_json() {
 
 json_count_entries() {
   local mode="${1:-generic}"
-  python3 - "$mode" <<'PY'
-import json
-import sys
-
+  python3 -c '
+import json, sys
 mode = sys.argv[1]
 data = json.load(sys.stdin)
-
 def generic_count(value):
     if isinstance(value, list):
         return len(value)
     if isinstance(value, dict):
-        for key in ("sessions", "items", "results", "entries", "todos", "todo_list", "active", "data"):
+        for key in ("sessions","items","results","entries","todos","todo_list","active","data"):
             nested = value.get(key)
             if isinstance(nested, list):
                 return len(nested)
         return len(value)
     return 0
-
 if mode == "score_active":
-    if isinstance(data, dict) and isinstance(data.get("active"), list):
-        print(len(data["active"]))
-    else:
-        print(0)
+    print(len(data["active"]) if isinstance(data, dict) and isinstance(data.get("active"), list) else 0)
 else:
     print(generic_count(data))
-PY
+' "$mode"
 }
 
 json_extract_verdict() {
-  python3 - <<'PY'
-import json
-import sys
-
+  python3 -c '
+import json, sys
 data = json.load(sys.stdin)
-
 def unwrap(value):
     if isinstance(value, str):
         try:
@@ -747,11 +866,10 @@ def unwrap(value):
         except (json.JSONDecodeError, TypeError):
             return value
     return value
-
 def extract(value):
     value = unwrap(value)
     if isinstance(value, dict):
-        for key in ("verdict", "status", "classification", "result"):
+        for key in ("verdict","status","classification","result"):
             nested = value.get(key)
             if isinstance(nested, str):
                 return nested
@@ -762,9 +880,8 @@ def extract(value):
     if isinstance(value, str):
         return value
     return "unknown"
-
 print(extract(data))
-PY
+'
 }
 
 capture_edamame_baseline() {
@@ -917,6 +1034,7 @@ run_demo_loop() {
     log "Starting demo iteration ${iteration}/${ITERATIONS}"
     baseline_round
     seed_models_with_agent_activity
+    run_intent_injection
 
     for scenario in "${SCENARIOS[@]}"; do
       case "$scenario" in
@@ -999,8 +1117,7 @@ main() {
   ensure_pairing
 
   if [[ -f "$OPENCLAW_PSK" ]]; then
-    sync_psk "$CURSOR_PSK" || true
-    sync_psk "$CLAUDE_PSK" || true
+    sync_all_psks
   fi
 
   if [[ "$PROVISION_ONLY" -eq 1 ]]; then
