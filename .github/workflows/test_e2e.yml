@@ -35,6 +35,8 @@ env:
 jobs:
   e2e:
     name: Run E2E harness
+    # Linux support is implemented in the harness but deferred for CI
+    # until a self-hosted Linux runner with capture permissions is available.
     runs-on: macos-latest
     timeout-minutes: 120
 

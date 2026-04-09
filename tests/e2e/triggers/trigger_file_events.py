@@ -12,7 +12,7 @@ Detection path:
   FIM watcher  ->  file created in /tmp/              ->  file_system_tampering (HIGH)
   CVE reference: CVE-2025-30066
 
-Cross-platform: macOS, Linux, Windows.
+Cross-platform: macOS, Linux.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import os
 import signal
+import tempfile
 import sys
 import time
 from pathlib import Path
@@ -103,7 +104,7 @@ def main() -> int:
     ssh_key = Path(f"~/.ssh/{pfx}_fim_test_key").expanduser()
     aws_cred = Path(f"~/.aws/{pfx}_fim_test_credentials").expanduser()
     env_file = Path(f"~/.env_{pfx}_fim_test").expanduser()
-    tmp_file = Path(f"/tmp/{pfx}_fim_suspicious_binary")
+    tmp_file = Path(tempfile.gettempdir()) / f"{pfx}_fim_suspicious_binary"
 
     sensitive_paths = [ssh_key, aws_cred, env_file]
     all_paths = sensitive_paths + [tmp_file]
