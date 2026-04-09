@@ -35,6 +35,9 @@ Options:
   --divergence-duration SEC     divergence injector duration. Default: 90.
   --post-wait SEC             Wait after each injector before cleanup. Default: 15.
   --cve-cooldown SEC          Pause between CVE scenarios. Default: 8.
+  --skip-intent               Skip intent injection legs (which require
+                              EDAMAME_LLM_API_KEY / live LLM access).
+                              CVE injector legs still run if --focus includes cve.
   --strict                    Exit on first intent E2E or injector failure.
   --continue-on-failure       Default: record failures and continue rounds.
   --intent-poll-attempts N    Passed as E2E_POLL_ATTEMPTS to intent scripts (default: 48).
@@ -86,6 +89,7 @@ DRY_RUN=0
 REPORT_DIR=""
 INTENT_POLL_ATTEMPTS=48
 STOP_AFTER_CLEAN_ROUND=1
+SKIP_INTENT=0
 DIVERGENCE_MODEL_MIN_AGE_SECS="${DIVERGENCE_MODEL_MIN_AGE_SECS:-65}"
 
 CLI_REPO="${EDAMAME_CLI_REPO:-$ROOT_DIR/../../../edamame_cli}"
@@ -128,6 +132,7 @@ while (($# > 0)); do
       REPORT_DIR="$2"
       shift 2
       ;;
+    --skip-intent) SKIP_INTENT=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
     -h|--help)
       usage
@@ -1687,6 +1692,23 @@ print(len(active))
           log "  DETECTED: $bl_count active blacklisted session(s) to FireHOL IPs"
           detected=1
         fi
+
+        # Supplementary: verify that the vulnerability detector also raised a
+        # skill_supply_chain finding for blacklisted communication.
+        local sc_count
+        sc_count="$(python3 -c "
+import sys; sys.path.insert(0, '$TRIGGERS_DIR')
+from _edamame_cli import cli_rpc
+report = cli_rpc('get_vulnerability_findings')
+findings = report.get('findings', []) if isinstance(report, dict) else []
+sc = [f for f in findings if f.get('check') == 'skill_supply_chain']
+print(len(sc))
+" 2>/dev/null || echo "0")"
+        if [[ "$sc_count" -gt 0 ]]; then
+          log "  DETECTED: $sc_count skill_supply_chain vulnerability finding(s) for blacklisted traffic"
+        else
+          log "  NOTE: no skill_supply_chain vulnerability findings yet (blacklisted sessions detected=$bl_count)"
+        fi
         ;;
 
       divergence_verdict)
@@ -2026,7 +2048,23 @@ validate_repos() {
 }
 
 main() {
-  [[ "$(uname -s)" == "Darwin" ]] || die "This harness is validated for macOS only."
+  local os_name
+  os_name="$(uname -s)"
+  case "$os_name" in
+    Darwin)
+      log "Platform: macOS"
+      ;;
+    Linux)
+      log "Platform: Linux"
+      # On Linux, packet capture requires CAP_NET_RAW or root.
+      if [[ "$(id -u)" -ne 0 ]] && ! capsh --has-p=cap_net_raw 2>/dev/null; then
+        warn "Running as non-root without CAP_NET_RAW; capture may fail."
+      fi
+      ;;
+    *)
+      die "Unsupported platform: $os_name (only macOS and Linux are supported)."
+      ;;
+  esac
   require_command python3
   require_command curl
   [[ -f "$SUPPORTED_AGENT_HELPER" ]] || die "Missing supported-agent helper: $SUPPORTED_AGENT_HELPER"
@@ -2059,10 +2097,14 @@ main() {
     local -a phases=()
 
     if [[ "$FOCUS" == "intent" || "$FOCUS" == "both" ]]; then
-      phases+=("intent")
-      if ! run_intent_suite; then intent_rc=1; ANY_FAILURE=1; fi
-      if [[ "$intent_rc" -ne 0 ]]; then
-        warn "Intent leg failures recorded for round ${ROUND_INDEX}. Logs: $REPORT_DIR/round_${ROUND_INDEX}_*.log diag: *_diag.json"
+      if [[ "$SKIP_INTENT" -eq 1 ]]; then
+        log "Skipping intent legs (--skip-intent). Intent injection requires EDAMAME_LLM_API_KEY."
+      else
+        phases+=("intent")
+        if ! run_intent_suite; then intent_rc=1; ANY_FAILURE=1; fi
+        if [[ "$intent_rc" -ne 0 ]]; then
+          warn "Intent leg failures recorded for round ${ROUND_INDEX}. Logs: $REPORT_DIR/round_${ROUND_INDEX}_*.log diag: *_diag.json"
+        fi
       fi
     fi
 
