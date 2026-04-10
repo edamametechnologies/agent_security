@@ -32,16 +32,7 @@ BINARY_NAME = "divergence_probe"
 DEFAULT_INTERVAL_MS = 200
 DEFAULT_PAYLOAD_BYTES = 1200
 
-UNUSUAL_DESTINATIONS = [
-    ("1.0.0.1", 63169),
-    ("1.0.0.1", 63170),
-    ("1.0.0.1", 63171),
-    ("1.0.0.1", 63172),
-    ("1.0.0.1", 63173),
-    ("1.0.0.1", 63174),
-    ("1.0.0.1", 63175),
-    ("1.0.0.1", 63176),
-]
+UNUSUAL_DESTINATIONS = [("1.0.0.1", port) for port in range(63169, 63184)]
 
 KEEP_RUNNING = True
 
