@@ -12,10 +12,63 @@ automatically cleaned up on exit.
 |-------------|-------|
 | macOS | Both demos are macOS-validated |
 | EDAMAME Security app **or** `edamame_posture` daemon | MCP enabled on port 3000 (override with `EDAMAME_MCP_PORT`) |
-| `edamame_cli` | Built from `../edamame_cli` or on `$PATH` |
+| `edamame_cli` | See [Installing edamame_cli](#installing-edamame_cli) below |
 | `python3` | Runs the trigger scripts |
 | `node` | Package extrapolators (divergence demo) |
 | `curl` | Health check |
+
+### Installing edamame_cli
+
+`edamame_cli` is the RPC interface used by the demo scripts to query and
+verify EDAMAME state. Install it before running any demo.
+
+**macOS (Homebrew -- recommended):**
+
+```bash
+brew tap edamametechnologies/tap
+brew install edamame-cli
+```
+
+**macOS (manual binary):**
+
+Download the universal macOS binary from the
+[releases page](https://github.com/edamametechnologies/edamame_cli/releases):
+
+```bash
+# Download the latest universal binary (replace VERSION)
+curl -LO "https://github.com/edamametechnologies/edamame_cli/releases/latest/download/edamame_cli-VERSION-universal-apple-darwin"
+chmod +x edamame_cli-*
+sudo mv edamame_cli-* /usr/local/bin/edamame_cli
+```
+
+**Linux (APT):**
+
+```bash
+wget -O - https://edamame.s3.eu-west-1.amazonaws.com/repo/public.key \
+  | sudo gpg --dearmor -o /usr/share/keyrings/edamame.gpg
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/edamame.gpg] \
+  https://edamame.s3.eu-west-1.amazonaws.com/repo stable main" \
+  | sudo tee /etc/apt/sources.list.d/edamame.list
+sudo apt update && sudo apt install edamame-cli
+```
+
+**Build from source (developer workspace):**
+
+```bash
+cd ../edamame_cli
+cargo build --release
+# Binary: target/release/edamame_cli
+```
+
+**Verify the install:**
+
+```bash
+edamame_cli --version
+edamame_cli list-methods    # Should list available RPC methods
+```
+
+See the full [edamame_cli README](https://github.com/edamametechnologies/edamame_cli)
+for Windows, Alpine, ARM, and other platforms.
 
 ### EDAMAME App Setup Checklist
 
