@@ -24,6 +24,12 @@ scripts/
   preflight_publication.sh # Pre-publication consistency checks
   arxiv_readiness_gate.sh # arXiv submission readiness gate
 tests/
+  e2e/
+    triggers/             # 11 CVE/divergence trigger scripts + cleanup
+    run_demo.sh           # Demo orchestrator (--focus vuln|divergence|all)
+    run_e2e_harness.sh    # Automated E2E harness for CI
+    DEMO.md               # Step-by-step demo reproduction guide
+    E2E_TESTS.md          # E2E test architecture reference
   benchmark/
     live-scenarios/       # 50 versioned JSON scenario contracts
     run_live_suite.py     # Live benchmark harness (Lima VM orchestrator)
@@ -139,6 +145,8 @@ After regeneration, `artifacts/paper-bundle/` contains:
 - [Latest generated PDF](artifacts/paper-bundle/WHITEPAPER_GENERATED.pdf)
 - [Canonical claim index](docs/CLAIM_ARTIFACT_INDEX.md)
 - [Canonical benchmark summary](artifacts/live-paper-summary.json)
+- [Demo guide -- vulnerability and divergence detection](tests/e2e/DEMO.md)
+- [E2E test architecture](tests/e2e/E2E_TESTS.md)
 
 ## Related Repositories
 

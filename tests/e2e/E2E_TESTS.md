@@ -1,5 +1,8 @@
 # Agent Security E2E Test Architecture
 
+> **Looking to run a demo?** See [DEMO.md](DEMO.md) for step-by-step
+> instructions to reproduce vulnerability and divergence detection demos.
+
 End-to-end test infrastructure for validating EDAMAME's two-plane security
 model across the supported agent integration packages declared in
 `agent_security/supported_agents/index.json`. The current registry includes
@@ -59,22 +62,39 @@ Eleven scenarios, each in `triggers/trigger_<name>.py`:
 ### `run_demo.sh`
 
 Full interactive demo orchestrator. Provisions packages, seeds behavioral
-models with real agent activity, then cycles through all 11 CVE scenarios
-with `edamame_cli` baseline capture and recovery verification. Repo paths
-for the staged packages are resolved through `supported_agents.py`, so the
-demo follows the same registry metadata as the automated harness.
+models with real agent activity, then cycles through CVE and/or divergence
+scenarios with `edamame_cli` baseline capture and recovery verification.
+Use `--focus vuln|divergence|all` to select which demo category to run.
+Repo paths for the staged packages are resolved through `supported_agents.py`,
+so the demo follows the same registry metadata as the automated harness.
+See [DEMO.md](DEMO.md) for a step-by-step reproduction guide.
 
 ```bash
+# Run all scenarios (default)
 bash tests/e2e/run_demo.sh \
   --iterations 1 \
   --agent-type openclaw \
   --scenario-duration 150 \
   --divergence-duration 90
+
+# Vulnerability detection demo only (no model seeding needed)
+bash tests/e2e/run_demo.sh --focus vuln
+
+# Divergence detection demo only (seeds models + injects intent first)
+bash tests/e2e/run_demo.sh --focus divergence
 ```
+
+The `--focus` flag selects which demo category to run:
+
+| Mode | Scenarios | Prep |
+|------|-----------|------|
+| `vuln` | CVE/vulnerability triggers (blacklist, token-exfil, sandbox-escape, memory-poisoning, credential-sprawl, tool-poisoning, supply-chain-exfil, npm-rat-beacon, file-events) | Baseline capture only |
+| `divergence` | Divergence triggers (divergence, goal-drift) | Seeds behavioral models + injects intent |
+| `all` | Both (default) | Seeds behavioral models + injects intent |
 
 Key capabilities:
 - Provisions Cursor, Claude Code, and OpenClaw packages from local source
-- Seeds behavioral models via agent CLIs and package extrapolators
+- Seeds behavioral models via agent CLIs and package extrapolators (divergence / all modes)
 - Captures `edamame_cli` baseline before each scenario (blacklisted, anomalous,
   active threats, advisor todos, divergence verdict)
 - Runs trigger, waits for EDAMAME ingestion, takes post-scenario snapshot
@@ -198,7 +218,8 @@ tests/e2e/
   run_demo.sh                      # Full demo orchestrator
   run_e2e_harness.sh               # Automated E2E harness
   supported_agents.py              # Registry helper for repo/path resolution
-  E2E_TESTS.md                     # This document
+  E2E_TESTS.md                     # This document (architecture reference)
+  DEMO.md                          # Step-by-step demo reproduction guide
 
 Intent injection scripts (one per agent repo):
   edamame_openclaw/tests/e2e_inject_intent.sh
@@ -236,7 +257,7 @@ because they rely on connection count rather than sustained traffic volume.
    - Add the created marker to `CREATED_MARKERS`
 
 3. Update `run_demo.sh`:
-   - Add scenario name to `SCENARIOS` array
+   - Add scenario name to `VULN_SCENARIOS` or `DIVERGENCE_SCENARIOS` array
    - Add duration classification in the `case` statement if not default
 
 4. Update `run_e2e_harness.sh`:

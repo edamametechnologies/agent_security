@@ -40,6 +40,11 @@ Usage: ./run_agent_security_demo.sh [options]
 Refresh local EDAMAME integrations and run a reversible demo loop on macOS.
 
 Options:
+  --focus MODE              Which demo to run: vuln, divergence, or all. Default: all
+                            vuln: CVE/vulnerability detection scenarios only.
+                            divergence: Divergence detection scenarios only (seeds
+                              behavioral models and injects intent first).
+                            all: Both vulnerability and divergence scenarios.
   --workspace-root PATH     Workspace root used for Cursor/Claude package configs.
                             Default: this repo root.
   --iterations N            Number of full scenario rounds. Default: 1
@@ -81,13 +86,11 @@ Behavior:
   2. Merge the rendered Cursor MCP snippet into ~/.cursor/mcp.json.
   3. Sync the OpenClaw extension + skills into ~/.openclaw and enable the plugin.
   4. Reuse or request an app-issued EDAMAME MCP token via setup/pair.sh.
-  5. Seed behavioral models with real package/agent activity.
-  6. Inject synthetic intent via each agent's e2e_inject_intent.sh (unless --skip-intent).
-     This pushes synthetic transcripts, runs extrapolators, and verifies behavioral models
-     appear for all registered intent-capable agents.
-  7. Run all CVE/divergence scenarios (blacklist, token-exfil, sandbox-escape,
-     divergence, memory-poisoning, goal-drift, credential-sprawl, tool-poisoning).
-  8. Verify every scenario with edamame_cli and wait for alert/session counts to
+  5. Depending on --focus:
+     vuln:       Skip model seeding/intent, run CVE scenarios only.
+     divergence: Seed behavioral models, inject intent, run divergence scenarios.
+     all:        Seed models, inject intent, run all scenarios (default).
+  6. Verify every scenario with edamame_cli and wait for alert/session counts to
      return to the pre-scenario baseline after cleanup.
 
 Backups:
@@ -101,6 +104,7 @@ TRIGGERS_DIR="$ROOT_DIR/triggers"
 SUPPORTED_AGENT_HELPER="$ROOT_DIR/supported_agents.py"
 
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$ROOT_DIR/../../..}"
+FOCUS="all"
 ITERATIONS=1
 SCENARIO_DURATION=150
 DIVERGENCE_DURATION=90
@@ -132,6 +136,10 @@ EDAMAME_BASELINE_CAPTURED=0
 
 while (($# > 0)); do
   case "$1" in
+    --focus)
+      FOCUS="$2"
+      shift 2
+      ;;
     --workspace-root)
       WORKSPACE_ROOT="$2"
       shift 2
@@ -249,19 +257,24 @@ RUN_TS="$(date +"%Y%m%d-%H%M%S")"
 BACKUP_ROOT="${HOME}/.edamame_demo_backups/${RUN_TS}"
 mkdir -p "$BACKUP_ROOT"
 
-SCENARIOS=(
+VULN_SCENARIOS=(
   "blacklist_comm"
   "cve_token_exfil"
   "cve_sandbox_escape"
-  "divergence"
   "memory_poisoning"
-  "goal_drift"
   "credential_sprawl"
   "tool_poisoning_effects"
   "supply_chain_exfil"
   "npm_rat_beacon"
   "file_events"
 )
+
+DIVERGENCE_SCENARIOS=(
+  "divergence"
+  "goal_drift"
+)
+
+SCENARIOS=()
 
 log() {
   printf '\n[%s] %s\n' "$(date +"%H:%M:%S")" "$*"
@@ -452,6 +465,7 @@ trap cleanup_demo_state EXIT INT TERM
 
 validate_inputs() {
   [[ "$(uname -s)" == "Darwin" ]] || die "This orchestrator currently supports macOS only."
+  [[ "$FOCUS" =~ ^(vuln|divergence|all)$ ]] || die "--focus must be one of: vuln, divergence, all"
   [[ "$ITERATIONS" =~ ^[0-9]+$ ]] || die "--iterations must be an integer"
   [[ "$SCENARIO_DURATION" =~ ^[0-9]+$ ]] || die "--scenario-duration must be an integer"
   [[ "$DIVERGENCE_DURATION" =~ ^[0-9]+$ ]] || die "--divergence-duration must be an integer"
@@ -460,6 +474,12 @@ validate_inputs() {
   [[ "$VERIFY_TIMEOUT" =~ ^[0-9]+$ ]] || die "--verify-timeout must be an integer"
   [[ "$VERIFY_INTERVAL" =~ ^[0-9]+$ ]] || die "--verify-interval must be an integer"
   [[ "$INTENT_TIMEOUT" =~ ^[0-9]+$ ]] || die "--intent-timeout must be an integer"
+
+  case "$FOCUS" in
+    vuln)       SCENARIOS=("${VULN_SCENARIOS[@]}") ;;
+    divergence) SCENARIOS=("${DIVERGENCE_SCENARIOS[@]}") ;;
+    all)        SCENARIOS=("${VULN_SCENARIOS[@]}" "${DIVERGENCE_SCENARIOS[@]}") ;;
+  esac
 }
 
 check_prereqs() {
@@ -1028,13 +1048,23 @@ post_scenario_readout() {
   run_edamame_cli_snapshot
 }
 
+needs_behavioral_models() {
+  [[ "$FOCUS" == "divergence" || "$FOCUS" == "all" ]]
+}
+
 run_demo_loop() {
   local iteration scenario duration
+  log "Demo focus: ${FOCUS} (${#SCENARIOS[@]} scenarios)"
   for ((iteration = 1; iteration <= ITERATIONS; iteration++)); do
     log "Starting demo iteration ${iteration}/${ITERATIONS}"
     baseline_round
-    seed_models_with_agent_activity
-    run_intent_injection
+
+    if needs_behavioral_models; then
+      seed_models_with_agent_activity
+      run_intent_injection
+    else
+      log "Skipping behavioral model seeding (vuln-only mode)"
+    fi
 
     for scenario in "${SCENARIOS[@]}"; do
       case "$scenario" in
@@ -1105,6 +1135,7 @@ main() {
 
   log "Workspace root: $WORKSPACE_ROOT"
   log "Agent type: $AGENT_TYPE"
+  log "Focus mode: $FOCUS"
 
   if [[ "$SKIP_PROVISION" -eq 0 ]]; then
     install_cursor_package
