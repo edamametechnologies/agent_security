@@ -544,38 +544,30 @@ install_openclaw_surface() {
 
   log "Refreshing OpenClaw extension and skills from local source"
 
+  # Pre-install: back up existing state so the demo can restore later
   mkdir -p "$OPENCLAW_HOME/extensions" "$OPENCLAW_HOME/skills"
   backup_if_exists "$OPENCLAW_HOME/extensions/edamame" "$BACKUP_ROOT/openclaw/extensions-edamame"
   backup_if_exists "$OPENCLAW_HOME/extensions/edamame-mcp" "$BACKUP_ROOT/openclaw/extensions-edamame-mcp"
   backup_if_exists "$OPENCLAW_HOME/skills/edamame-extrapolator" "$BACKUP_ROOT/openclaw/skills-edamame-extrapolator"
   backup_if_exists "$OPENCLAW_HOME/skills/edamame-cortex-extrapolator" "$BACKUP_ROOT/openclaw/skills-edamame-cortex-extrapolator"
   backup_if_exists "$OPENCLAW_HOME/skills/edamame-posture" "$BACKUP_ROOT/openclaw/skills-edamame-posture"
-
-  run_cmd rm -rf "$OPENCLAW_HOME/extensions/edamame"
   run_cmd rm -rf "$OPENCLAW_HOME/extensions/edamame-mcp"
+
+  # Delegate to the canonical install script (same pattern as Cursor and Claude Code)
+  run_cmd bash "$OPENCLAW_REPO/setup/install.sh"
+
+  # Post-install: stage bundled skills inside the extension directory
+  # (the plugin manifest declares skills relative to the extension root)
   run_cmd mkdir -p \
     "$OPENCLAW_HOME/extensions/edamame/skills/edamame-extrapolator" \
     "$OPENCLAW_HOME/extensions/edamame/skills/edamame-posture"
-  run_cmd cp "$OPENCLAW_REPO/extensions/edamame/openclaw.plugin.json" "$OPENCLAW_HOME/extensions/edamame/openclaw.plugin.json"
-  run_cmd cp "$OPENCLAW_REPO/extensions/edamame/index.ts" "$OPENCLAW_HOME/extensions/edamame/index.ts"
-  # The plugin manifest declares bundled skills relative to the extension root,
-  # so stage them there and under ~/.openclaw/skills for compatibility.
   run_cmd cp "$OPENCLAW_REPO/skill/edamame-extrapolator/SKILL.md" "$OPENCLAW_HOME/extensions/edamame/skills/edamame-extrapolator/SKILL.md"
   run_cmd cp "$OPENCLAW_REPO/skill/edamame-posture/SKILL.md" "$OPENCLAW_HOME/extensions/edamame/skills/edamame-posture/SKILL.md"
 
-  run_cmd rm -rf "$OPENCLAW_HOME/skills/edamame-extrapolator"
-  run_cmd mkdir -p "$OPENCLAW_HOME/skills/edamame-extrapolator"
-  run_cmd cp "$OPENCLAW_REPO/skill/edamame-extrapolator/SKILL.md" "$OPENCLAW_HOME/skills/edamame-extrapolator/SKILL.md"
-
+  # Post-install: create cortex-extrapolator alias used by some OpenClaw configs
   run_cmd rm -rf "$OPENCLAW_HOME/skills/edamame-cortex-extrapolator"
   run_cmd mkdir -p "$OPENCLAW_HOME/skills/edamame-cortex-extrapolator"
   run_cmd cp "$OPENCLAW_REPO/skill/edamame-extrapolator/SKILL.md" "$OPENCLAW_HOME/skills/edamame-cortex-extrapolator/SKILL.md"
-
-  run_cmd rm -rf "$OPENCLAW_HOME/skills/edamame-posture"
-  run_cmd mkdir -p "$OPENCLAW_HOME/skills/edamame-posture"
-  run_cmd cp "$OPENCLAW_REPO/skill/edamame-posture/SKILL.md" "$OPENCLAW_HOME/skills/edamame-posture/SKILL.md"
-
-  run_cmd openclaw plugins enable edamame || optional_failure "openclaw plugins enable edamame failed"
 }
 
 auto_pair_via_rpc() {
