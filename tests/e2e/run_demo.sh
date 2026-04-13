@@ -82,14 +82,19 @@ Prerequisites:
   - edamame_cli for direct EDAMAME verification (unless --skip-edamame-cli)
 
 Behavior:
-  1. Refresh Cursor and Claude package installs from the local repos.
+  Depending on --focus:
+     vuln:       Skip agent plugin setup entirely, run CVE scenarios only.
+     divergence: Provision agent plugins, pair, seed behavioral models,
+                 inject intent, run divergence scenarios.
+     all:        Provision agent plugins, pair, seed models, inject intent,
+                 run all scenarios (default).
+  For divergence/all:
+  1. Refresh Cursor and Claude package installs from local repos.
   2. Merge the rendered Cursor MCP snippet into ~/.cursor/mcp.json.
   3. Sync the OpenClaw extension + skills into ~/.openclaw and enable the plugin.
   4. Reuse or request an app-issued EDAMAME MCP token via setup/pair.sh.
-  5. Depending on --focus:
-     vuln:       Skip model seeding/intent, run CVE scenarios only.
-     divergence: Seed behavioral models, inject intent, run divergence scenarios.
-     all:        Seed models, inject intent, run all scenarios (default).
+  For all modes:
+  5. Run the selected scenarios.
   6. Verify every scenario with edamame_cli and wait for alert/session counts to
      return to the pre-scenario baseline after cleanup.
 
@@ -491,9 +496,11 @@ check_prereqs() {
   validate_supported_agent_type "$AGENT_TYPE" || \
     die "--agent-type must be one of: $(supported_agent_types_display)"
   load_registry_context
-  assert_dir "$CURSOR_REPO"
-  assert_dir "$CLAUDE_REPO"
-  assert_dir "$OPENCLAW_REPO"
+  if needs_behavioral_models; then
+    assert_dir "$CURSOR_REPO"
+    assert_dir "$CLAUDE_REPO"
+    assert_dir "$OPENCLAW_REPO"
+  fi
   if [[ "$SKIP_EDAMAME_CLI" -eq 0 ]]; then
     resolve_edamame_cli_bin >/dev/null
   fi
@@ -1129,18 +1136,22 @@ main() {
   log "Agent type: $AGENT_TYPE"
   log "Focus mode: $FOCUS"
 
-  if [[ "$SKIP_PROVISION" -eq 0 ]]; then
-    install_cursor_package
-    install_claude_package
-    install_openclaw_surface
+  if needs_behavioral_models; then
+    if [[ "$SKIP_PROVISION" -eq 0 ]]; then
+      install_cursor_package
+      install_claude_package
+      install_openclaw_surface
+    else
+      warn "Skipping provisioning by request"
+    fi
+
+    ensure_pairing
+
+    if [[ -f "$OPENCLAW_PSK" ]]; then
+      sync_all_psks
+    fi
   else
-    warn "Skipping provisioning by request"
-  fi
-
-  ensure_pairing
-
-  if [[ -f "$OPENCLAW_PSK" ]]; then
-    sync_all_psks
+    log "Skipping agent plugin provisioning and pairing (vuln-only mode)"
   fi
 
   if [[ "$PROVISION_ONLY" -eq 1 ]]; then
