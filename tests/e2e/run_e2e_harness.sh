@@ -587,7 +587,10 @@ for session in sessions if isinstance(sessions, list) else []:
     l7 = session.get("l7") or {}
     process_path = str(l7.get("process_path") or "")
     active = bool((session.get("status") or {}).get("active"))
-    if process_path.endswith("/divergence_probe") and active:
+    path_normalized = process_path.replace("\\\\", "/")
+    if path_normalized.endswith(".exe"):
+        path_normalized = path_normalized[:-4]
+    if path_normalized.endswith("/divergence_probe") and active:
         probe_active += 1
 
 verdict = str(summary.get("verdict") or "").strip().upper()
