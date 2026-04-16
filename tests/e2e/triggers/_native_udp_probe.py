@@ -144,6 +144,7 @@ def find_cc() -> str | None:
 def compile_udp_probe(state_dir: Path, marker_name: str, binary_name: str) -> Path | None:
     cc = find_cc()
     if cc is None:
+        print("compile_udp_probe: no compiler found", file=sys.stderr)
         return None
 
     src = state_dir / f"{binary_name}.c"
@@ -158,13 +159,16 @@ def compile_udp_probe(state_dir: Path, marker_name: str, binary_name: str) -> Pa
     if sys.platform == "win32":
         cmd.append("-lws2_32")
 
+    print(f"compile_udp_probe: running {cmd}", file=sys.stderr)
     try:
-        subprocess.check_call(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except subprocess.CalledProcessError:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"compile_udp_probe: compilation failed (rc={result.returncode})", file=sys.stderr)
+            print(f"  stdout: {result.stdout[:500]}", file=sys.stderr)
+            print(f"  stderr: {result.stderr[:500]}", file=sys.stderr)
+            return None
+    except Exception as exc:
+        print(f"compile_udp_probe: exception: {exc}", file=sys.stderr)
         return None
 
     try:
