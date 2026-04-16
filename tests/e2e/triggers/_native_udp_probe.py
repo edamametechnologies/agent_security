@@ -4,6 +4,7 @@ Shared helpers for native UDP probe-based E2E triggers.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -112,6 +113,17 @@ _WINDOWS_GCC_CANDIDATES = [
 
 
 def find_cc() -> str | None:
+    cc_env = os.environ.get("CC", "").strip()
+    if cc_env:
+        try:
+            subprocess.check_call(
+                [cc_env, "--version"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return cc_env
+        except Exception:
+            pass
     candidates: list[str] = ["cc", "gcc", "clang"]
     if sys.platform == "win32":
         candidates.extend(_WINDOWS_GCC_CANDIDATES)
@@ -123,7 +135,7 @@ def find_cc() -> str | None:
                 stderr=subprocess.DEVNULL,
             )
             return candidate
-        except (FileNotFoundError, subprocess.CalledProcessError):
+        except Exception:
             continue
     return None
 
