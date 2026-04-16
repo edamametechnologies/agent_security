@@ -166,8 +166,18 @@ def record_created(state_dir: Path, path: Path) -> None:
     marker.write_text("\n".join(sorted(existing)) + "\n", encoding="utf-8")
 
 
+_WINDOWS_GCC_CANDIDATES = [
+    r"C:\msys64\mingw64\bin\gcc.exe",
+    r"C:\msys64\ucrt64\bin\gcc.exe",
+    r"C:\msys64\usr\bin\gcc.exe",
+]
+
+
 def find_cc() -> str | None:
-    for candidate in ("cc", "gcc", "clang"):
+    candidates: list[str] = ["cc", "gcc", "clang"]
+    if sys.platform == "win32":
+        candidates.extend(_WINDOWS_GCC_CANDIDATES)
+    for candidate in candidates:
         try:
             subprocess.check_call(
                 [candidate, "--version"],
@@ -185,12 +195,19 @@ def compile_probe(state_dir: Path) -> Path | None:
         return None
 
     src = state_dir / "sandbox_probe.c"
-    binary = state_dir / "sandbox_probe"
+    if sys.platform == "win32":
+        binary = state_dir / "sandbox_probe.exe"
+    else:
+        binary = state_dir / "sandbox_probe"
     src.write_text(C_SOURCE, encoding="utf-8")
     record_created(state_dir, src)
 
+    cmd = [cc, str(src), "-O2", "-o", str(binary)]
+    if sys.platform == "win32":
+        cmd.append("-lws2_32")
+
     try:
-        subprocess.check_call([cc, str(src), "-O2", "-o", str(binary)])
+        subprocess.check_call(cmd)
     except subprocess.CalledProcessError:
         return None
 

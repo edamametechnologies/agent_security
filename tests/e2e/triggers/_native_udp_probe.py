@@ -104,20 +104,17 @@ def record_created(state_dir: Path, marker_name: str, path: Path) -> None:
     marker.write_text("\n".join(sorted(existing)) + "\n", encoding="utf-8")
 
 
-_WINDOWS_GCC_SEARCH_DIRS = [
-    r"C:\msys64\mingw64\bin",
-    r"C:\msys64\ucrt64\bin",
-    r"C:\msys64\usr\bin",
+_WINDOWS_GCC_CANDIDATES = [
+    r"C:\msys64\mingw64\bin\gcc.exe",
+    r"C:\msys64\ucrt64\bin\gcc.exe",
+    r"C:\msys64\usr\bin\gcc.exe",
 ]
 
 
 def find_cc() -> str | None:
     candidates: list[str] = ["cc", "gcc", "clang"]
     if sys.platform == "win32":
-        for search_dir in _WINDOWS_GCC_SEARCH_DIRS:
-            gcc_path = Path(search_dir) / "gcc.exe"
-            if gcc_path.is_file():
-                candidates.append(str(gcc_path))
+        candidates.extend(_WINDOWS_GCC_CANDIDATES)
     for candidate in candidates:
         try:
             subprocess.check_call(
