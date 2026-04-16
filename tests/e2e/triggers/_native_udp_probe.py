@@ -5,6 +5,7 @@ Shared helpers for native UDP probe-based E2E triggers.
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 C_SOURCE = r"""
@@ -103,8 +104,21 @@ def record_created(state_dir: Path, marker_name: str, path: Path) -> None:
     marker.write_text("\n".join(sorted(existing)) + "\n", encoding="utf-8")
 
 
+_WINDOWS_GCC_SEARCH_DIRS = [
+    r"C:\msys64\mingw64\bin",
+    r"C:\msys64\ucrt64\bin",
+    r"C:\msys64\usr\bin",
+]
+
+
 def find_cc() -> str | None:
-    for candidate in ("cc", "gcc", "clang"):
+    candidates: list[str] = ["cc", "gcc", "clang"]
+    if sys.platform == "win32":
+        for search_dir in _WINDOWS_GCC_SEARCH_DIRS:
+            gcc_path = Path(search_dir) / "gcc.exe"
+            if gcc_path.is_file():
+                candidates.append(str(gcc_path))
+    for candidate in candidates:
         try:
             subprocess.check_call(
                 [candidate, "--version"],
@@ -123,13 +137,20 @@ def compile_udp_probe(state_dir: Path, marker_name: str, binary_name: str) -> Pa
         return None
 
     src = state_dir / f"{binary_name}.c"
-    binary = state_dir / binary_name
+    if sys.platform == "win32":
+        binary = state_dir / f"{binary_name}.exe"
+    else:
+        binary = state_dir / binary_name
     src.write_text(C_SOURCE, encoding="utf-8")
     record_created(state_dir, marker_name, src)
 
+    cmd = [cc, str(src), "-O2", "-o", str(binary)]
+    if sys.platform == "win32":
+        cmd.append("-lws2_32")
+
     try:
         subprocess.check_call(
-            [cc, str(src), "-O2", "-o", str(binary)],
+            cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
