@@ -182,8 +182,8 @@ def find_cc() -> str | None:
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             return cc_env
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"CC env ({cc_env}) failed: {exc}", file=sys.stderr)
     candidates: list[str] = ["cc", "gcc", "clang"]
     if sys.platform == "win32":
         candidates.extend(_WINDOWS_GCC_CANDIDATES)
@@ -194,7 +194,8 @@ def find_cc() -> str | None:
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             return candidate
-        except Exception:
+        except Exception as exc:
+            print(f"CC candidate ({candidate}) failed: {exc}", file=sys.stderr)
             continue
     return None
 
