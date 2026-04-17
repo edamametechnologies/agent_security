@@ -6,8 +6,9 @@
 # Complements run_agent_security_demo.sh (full demo loop). This harness focuses on
 # repeatable verification and merge visibility without re-provisioning packages.
 #
-# macOS-oriented; paths follow run_agent_security_demo.sh. Requires EDAMAME app + MCP,
-# edamame_cli, python3, bash 4+.
+# Runs on macOS, Linux, and Windows (under Git Bash / WSL); paths follow
+# run_agent_security_demo.sh. macOS remains the primary validation target.
+# Requires EDAMAME app + MCP, edamame_cli, python3, bash 4+.
 #
 set -euo pipefail
 
@@ -285,14 +286,38 @@ ensure_capture_running() {
   die "Packet capture did not become active after start_capture"
 }
 
+# kill_by_pattern terminates matching processes. Uses pkill on Unix-like hosts
+# (macOS, Linux, WSL, Git Bash when procps is installed). Falls back to
+# taskkill via a Python shim on native Windows where pkill is absent.
+kill_by_pattern() {
+  local pattern="$1"
+  if command -v pkill >/dev/null 2>&1; then
+    pkill -f "$pattern" 2>/dev/null || true
+    return 0
+  fi
+  python3 - "$pattern" <<'PY' 2>/dev/null || true
+import subprocess
+import sys
+
+pattern = sys.argv[1]
+if sys.platform == "win32":
+    subprocess.run(
+        ["taskkill", "/F", "/FI", f"IMAGENAME eq {pattern}*"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+PY
+}
+
 restore_capture_state() {
   if [[ "$DRY_RUN" -eq 1 ]]; then
     return 0
   fi
 
   log "Harness teardown: killing leaked probe processes"
-  pkill -f sandbox_probe 2>/dev/null || true
-  pkill -f divergence_probe 2>/dev/null || true
+  kill_by_pattern sandbox_probe
+  kill_by_pattern divergence_probe
 
   log "Harness teardown: running injector cleanup for all agent types"
   local cleanup_path="$TRIGGERS_DIR/cleanup.py"
@@ -2064,8 +2089,16 @@ main() {
         warn "Running as non-root without CAP_NET_RAW; capture may fail."
       fi
       ;;
+    MINGW*|MSYS*|CYGWIN*)
+      log "Platform: Windows (Git Bash)"
+      # On Windows, packet capture requires Npcap and an elevated shell.
+      # EDAMAME Security typically handles this when running as the app daemon,
+      # but a bash session launched without Administrator rights may still see
+      # permission errors when calling capture-related RPCs.
+      warn "Packet capture on Windows requires Npcap and an elevated shell; start Git Bash / WSL as Administrator if capture RPCs fail."
+      ;;
     *)
-      die "Unsupported platform: $os_name (only macOS and Linux are supported)."
+      die "Unsupported platform: $os_name (supported: macOS, Linux, Windows under Git Bash / WSL)."
       ;;
   esac
   require_command python3

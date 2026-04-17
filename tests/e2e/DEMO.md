@@ -10,12 +10,13 @@ automatically cleaned up on exit.
 
 | Requirement | Notes |
 |-------------|-------|
-| macOS | Both demos are macOS-validated |
+| macOS, Linux, or Windows (Git Bash / WSL) | macOS remains the primary validation target. The same bash scripts run on all three OSes (no PowerShell port). |
 | EDAMAME Security app **or** `edamame_posture` daemon | MCP enabled on port 3000 (override with `EDAMAME_MCP_PORT`) |
 | `edamame_cli` | See [Installing edamame_cli](#installing-edamame_cli) below |
 | `python3` | Runs the trigger scripts |
 | `node` | Package extrapolators (divergence demo) |
 | `curl` | Health check |
+| `openclaw` / `claude` CLIs | Optional. Used for agent prompts and app-mediated OpenClaw pairing. If missing (typical on Windows), the demo auto-pairs via `edamame_cli` RPC. |
 
 ### Installing edamame_cli
 
@@ -69,6 +70,34 @@ edamame_cli list-methods    # Should list available RPC methods
 
 See the full [edamame_cli README](https://github.com/edamametechnologies/edamame_cli)
 for Windows, Alpine, ARM, and other platforms.
+
+### Running the demo on Linux and Windows
+
+`run_demo.sh` and `run_e2e_harness.sh` are portable bash scripts. No
+PowerShell port is required.
+
+- **Linux**: run under your default shell. Packet capture requires
+  `CAP_NET_RAW` or root, so the EDAMAME daemon must be started accordingly.
+- **Windows**: run under Git Bash (from Git for Windows) or WSL. Native
+  `pkill` is not always available; the demo scripts detect this and fall
+  back to `taskkill` via a small Python shim. Packet capture requires
+  Npcap and an elevated session -- start Git Bash / WSL as Administrator
+  if the capture RPCs fail.
+
+Plugin install paths are resolved by `tests/e2e/supported_agents.py
+resolve-paths`, which mirrors each plugin's `setup/install.sh` logic:
+
+| Kernel | Config home (example: cursor) | State home (PSK) |
+|--------|-------------------------------|------------------|
+| Darwin | `~/Library/Application Support/cursor-edamame` | `~/Library/Application Support/cursor-edamame-state/edamame-mcp.psk` |
+| Linux  | `${XDG_CONFIG_HOME:-~/.config}/cursor-edamame` | `${XDG_STATE_HOME:-~/.local/state}/cursor-edamame/edamame-mcp.psk` |
+| Windows (Git Bash) | `${APPDATA}/cursor-edamame` | `${LOCALAPPDATA}/cursor-edamame/edamame-mcp.psk` |
+
+OpenClaw paths (`~/.openclaw/...`) are the same on every OS and follow
+`edamame_openclaw/setup/pair.sh`. The demo now defaults `OPENCLAW_PSK` to
+the same path `pair.sh` writes
+(`~/.openclaw/edamame-openclaw/state/edamame-mcp.psk`), not the legacy
+`~/.edamame_psk` location.
 
 ### EDAMAME App Setup Checklist
 

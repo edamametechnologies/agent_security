@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import platform
 import sys
 from pathlib import Path
 from typing import Dict, List, Set
@@ -24,6 +25,112 @@ def resolve_repo_path(agent: Dict) -> Path:
     if env_var and os.environ.get(env_var):
         return Path(os.environ[env_var]).expanduser()
     return repo_root().parent / agent["repo_name"]
+
+
+def _is_windows() -> bool:
+    # Python under Git Bash / MSYS still reports `Windows` from platform.system().
+    # Check MSYSTEM as well in case a future runtime reports otherwise.
+    msystem = os.environ.get("MSYSTEM") or ""
+    return (
+        platform.system() == "Windows"
+        or msystem.startswith(("MINGW", "MSYS", "CYGWIN"))
+    )
+
+
+def _is_darwin() -> bool:
+    return platform.system() == "Darwin"
+
+
+# MCP snippet filename per agent. Mirrors each plugin's setup/install.sh
+# (<slug>-mcp.json written into CONFIG_HOME).
+_MCP_SNIPPET_NAME = {
+    "cursor": "cursor-mcp.json",
+    "claude_code": "claude-code-mcp.json",
+    "claude_desktop": "claude-desktop-mcp.json",
+}
+
+
+def resolve_install_paths(agent: Dict) -> Dict[str, str]:
+    """Resolve platform-aware install paths for an agent.
+
+    Mirrors the rules in each plugin's setup/install.sh:
+      - data_dir + Darwin: $HOME/Library/Application Support/<slug>
+      - data_dir + Windows (Git Bash / native): LOCALAPPDATA for data/state,
+        APPDATA for config
+      - data_dir + Linux: XDG_DATA_HOME / XDG_CONFIG_HOME / XDG_STATE_HOME
+      - home base (OpenClaw): $HOME/<install_relative_path> on every platform
+    """
+    layout = agent.get("install_layout") or {}
+    install_base = (layout.get("install_base") or "").strip()
+    install_relative_path = (layout.get("install_relative_path") or "").strip()
+    slug = (layout.get("config_slug") or layout.get("state_slug") or "").strip()
+    agent_type = (agent.get("agent_type") or "").strip()
+
+    home = Path.home()
+
+    if install_base == "home":
+        # OpenClaw layout: everything under $HOME/<install_relative_path>.
+        install_root = home / install_relative_path
+        data_home = install_root
+        config_home = install_root
+        state_home = install_root / "state"
+        return {
+            "install_root": str(install_root),
+            "data_home": str(data_home),
+            "config_home": str(config_home),
+            "state_home": str(state_home),
+            "config_json": "",
+            "psk_path": str(state_home / "edamame-mcp.psk"),
+            "mcp_snippet_path": "",
+        }
+
+    if install_base != "data_dir":
+        raise ValueError(f"unknown install_base: {install_base!r}")
+
+    if not slug:
+        raise ValueError(
+            f"agent {agent_type!r}: install_layout must define config_slug or state_slug"
+        )
+
+    if _is_darwin():
+        base = home / "Library" / "Application Support" / slug
+        data_home = base
+        config_home = base
+        state_home = base / "state"
+    elif _is_windows():
+        local_appdata_env = os.environ.get("LOCALAPPDATA")
+        appdata_env = os.environ.get("APPDATA")
+        local_appdata = (
+            Path(local_appdata_env) if local_appdata_env else home / "AppData" / "Local"
+        )
+        appdata = Path(appdata_env) if appdata_env else home / "AppData" / "Roaming"
+        data_home = local_appdata / slug
+        config_home = appdata / slug
+        state_home = local_appdata / slug / "state"
+    else:
+        xdg_data_env = os.environ.get("XDG_DATA_HOME")
+        xdg_config_env = os.environ.get("XDG_CONFIG_HOME")
+        xdg_state_env = os.environ.get("XDG_STATE_HOME")
+        xdg_data = Path(xdg_data_env) if xdg_data_env else home / ".local" / "share"
+        xdg_config = Path(xdg_config_env) if xdg_config_env else home / ".config"
+        xdg_state = Path(xdg_state_env) if xdg_state_env else home / ".local" / "state"
+        data_home = xdg_data / slug
+        config_home = xdg_config / slug
+        state_home = xdg_state / slug
+
+    install_root = data_home / "current"
+    mcp_snippet_name = _MCP_SNIPPET_NAME.get(agent_type, "")
+    mcp_snippet_path = config_home / mcp_snippet_name if mcp_snippet_name else None
+
+    return {
+        "install_root": str(install_root),
+        "data_home": str(data_home),
+        "config_home": str(config_home),
+        "state_home": str(state_home),
+        "config_json": str(config_home / "config.json"),
+        "psk_path": str(state_home / "edamame-mcp.psk"),
+        "mcp_snippet_path": str(mcp_snippet_path) if mcp_snippet_path else "",
+    }
 
 
 def iter_agents(registry: Dict) -> List[Dict]:
@@ -80,6 +187,20 @@ def cmd_get_agent(args: argparse.Namespace) -> int:
 def cmd_list_intent(_: argparse.Namespace) -> int:
     print(json.dumps(iter_intent_agents(load_registry())))
     return 0
+
+
+def cmd_resolve_paths(args: argparse.Namespace) -> int:
+    registry = load_registry()
+    for agent in iter_agents(registry):
+        if agent["agent_type"] == args.agent_type:
+            try:
+                print(json.dumps(resolve_install_paths(agent)))
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            return 0
+    print(f"unknown agent_type: {args.agent_type}", file=sys.stderr)
+    return 1
 
 
 def cmd_validate(_: argparse.Namespace) -> int:
@@ -139,6 +260,11 @@ def build_parser() -> argparse.ArgumentParser:
     get_agent.add_argument("--agent-type", required=True)
     sub.add_parser("list-intent")
     sub.add_parser("validate")
+    resolve_paths = sub.add_parser(
+        "resolve-paths",
+        help="Resolve platform-aware install paths for an agent (mirrors each plugin's setup/install.sh).",
+    )
+    resolve_paths.add_argument("--agent-type", required=True)
     return parser
 
 
@@ -153,6 +279,8 @@ def main() -> int:
         return cmd_list_intent(args)
     if args.command == "validate":
         return cmd_validate(args)
+    if args.command == "resolve-paths":
+        return cmd_resolve_paths(args)
     parser.error(f"unknown command {args.command}")
     return 2
 

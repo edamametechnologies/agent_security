@@ -12,7 +12,9 @@ Detection path:
   FIM watcher  ->  file created in /tmp/              ->  file_system_tampering (HIGH)
   CVE reference: CVE-2025-30066
 
-Cross-platform: macOS, Linux.
+Cross-platform: macOS, Linux, Windows (detection depends on the EDAMAME FIM
+watch paths configured for that platform; the trigger itself uses
+Path.expanduser(), tempfile.gettempdir(), and wraps chmod in try/except OSError).
 """
 
 from __future__ import annotations

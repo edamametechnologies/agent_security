@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 #
-# Local EDAMAME agent-security demo orchestrator for macOS.
+# Local EDAMAME agent-security demo orchestrator.
+#
+# Runs on macOS, Linux, and Windows (under Git Bash / WSL). macOS remains the
+# primary validation target; the same bash script is used everywhere.
 #
 # For scheduled multi-round intent E2E + merge reports without re-provisioning, see
 # run_e2e_harness.sh (--focus intent|cve|both).
@@ -28,7 +31,7 @@
 #   - OpenClaw provisioning syncs both the extension and the bundled skills,
 #     mirroring the repo's VM provisioner.
 #   - The default injector source is `openclaw` because it has the most reliable
-#     CLI lineage for local macOS demos. `cursor` and `claude` are available as
+#     CLI lineage for local demos. `cursor` and `claude` are available as
 #     experimental alternatives.
 
 set -euo pipefail
@@ -37,7 +40,8 @@ usage() {
   cat <<'EOF'
 Usage: ./run_agent_security_demo.sh [options]
 
-Refresh local EDAMAME integrations and run a reversible demo loop on macOS.
+Refresh local EDAMAME integrations and run a reversible demo loop.
+Supported on macOS, Linux, and Windows (Git Bash / WSL).
 
 Options:
   --focus MODE              Which demo to run: vuln, divergence, or all. Default: all
@@ -68,16 +72,16 @@ Options:
   --intent-timeout SEC      Max time per intent injection script. Default: 300
   --skip-edamame-cli        Skip direct edamame_cli snapshots and verification.
   --provision-only          Refresh local installs and exit without running scenarios.
-  --force-pair              Re-run OpenClaw app-mediated pairing even if ~/.edamame_psk exists.
+  --force-pair              Re-run OpenClaw app-mediated pairing even if a PSK already exists.
   --strict                  Treat optional-surface failures as fatal.
   --dry-run                 Print planned commands without executing them.
   -h, --help                Show this help.
 
 Prerequisites:
-  - macOS
+  - macOS, Linux, or Windows (run under Git Bash or WSL)
   - EDAMAME Security app or edamame_posture daemon with MCP on port 3000 (override with EDAMAME_MCP_PORT)
   - python3, node, curl
-  - openclaw CLI for OpenClaw provisioning and agent prompts
+  - openclaw CLI for OpenClaw provisioning and agent prompts (optional on Windows; auto-pair via RPC works without it)
   - claude CLI + ANTHROPIC_API_KEY for Claude Code agent prompts
   - edamame_cli for direct EDAMAME verification (unless --skip-edamame-cli)
 
@@ -244,19 +248,34 @@ CLAUDE_REPO=""
 CLAUDE_DESKTOP_REPO=""
 OPENCLAW_REPO=""
 
-CURSOR_HOME="${HOME}/Library/Application Support/cursor-edamame"
-CLAUDE_HOME="${HOME}/Library/Application Support/claude-code-edamame"
-CLAUDE_DESKTOP_HOME="${HOME}/Library/Application Support/claude-desktop-edamame"
+# Platform-aware install paths. Populated by load_install_paths() via
+# supported_agents.py resolve-paths, which mirrors each plugin's setup/install.sh
+# (Darwin, MINGW/MSYS/CYGWIN, Linux XDG).
+#   CURSOR_HOME / CLAUDE_HOME / CLAUDE_DESKTOP_HOME = config_home (where
+#     config.json and <slug>-mcp.json are written by install.sh)
+#   *_INSTALL_ROOT = data_home/current (where the bridge/service bundle lives)
+#   *_CONFIG = config_home/config.json
+#   *_PSK = state_home/edamame-mcp.psk
+CURSOR_HOME=""
+CLAUDE_HOME=""
+CLAUDE_DESKTOP_HOME=""
+CURSOR_INSTALL_ROOT=""
+CLAUDE_INSTALL_ROOT=""
+CLAUDE_DESKTOP_INSTALL_ROOT=""
+CURSOR_CONFIG=""
+CLAUDE_CONFIG=""
+CLAUDE_DESKTOP_CONFIG=""
+CURSOR_PSK=""
+CLAUDE_PSK=""
+CLAUDE_DESKTOP_PSK=""
+
+# OpenClaw uses $HOME/.openclaw on every platform (both install.sh and pair.sh).
 OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
-CURSOR_CONFIG="${CURSOR_HOME}/config.json"
-CLAUDE_CONFIG="${CLAUDE_HOME}/config.json"
-CLAUDE_DESKTOP_CONFIG="${CLAUDE_DESKTOP_HOME}/config.json"
-CURSOR_PSK="${CURSOR_HOME}/state/edamame-mcp.psk"
-CLAUDE_PSK="${CLAUDE_HOME}/state/edamame-mcp.psk"
-CLAUDE_DESKTOP_PSK="${CLAUDE_DESKTOP_HOME}/state/edamame-mcp.psk"
-OPENCLAW_PAIRING_PSK="${HOME}/.openclaw/edamame-openclaw/state/edamame-mcp.psk"
+OPENCLAW_PAIRING_PSK="${OPENCLAW_HOME}/edamame-openclaw/state/edamame-mcp.psk"
 CURSOR_MCP_TARGET="${CURSOR_MCP_TARGET:-$HOME/.cursor/mcp.json}"
-OPENCLAW_PSK="${OPENCLAW_PSK:-$HOME/.edamame_psk}"
+# Default to the path setup/pair.sh actually writes. Overridable via env for
+# backward compatibility with older demo runs that used ~/.edamame_psk.
+OPENCLAW_PSK="${OPENCLAW_PSK:-$OPENCLAW_PAIRING_PSK}"
 
 RUN_TS="$(date +"%Y%m%d-%H%M%S")"
 BACKUP_ROOT="${HOME}/.edamame_demo_backups/${RUN_TS}"
@@ -443,9 +462,110 @@ load_registry_context() {
   OPENCLAW_REPO="$(resolve_agent_repo openclaw)"
 }
 
+# OS_KERNEL is set by detect_os_kernel() to one of: macos, linux, windows.
+# Anything else aborts; this script targets Unix-like shells (bash) running on
+# macOS, Linux, or Windows under Git Bash/MSYS/Cygwin/WSL.
+OS_KERNEL=""
+
+detect_os_kernel() {
+  local kernel
+  kernel="$(uname -s)"
+  case "$kernel" in
+    Darwin)
+      OS_KERNEL="macos"
+      ;;
+    Linux)
+      # WSL reports Linux from uname; the XDG paths apply.
+      OS_KERNEL="linux"
+      ;;
+    MINGW*|MSYS*|CYGWIN*)
+      OS_KERNEL="windows"
+      ;;
+    *)
+      die "Unsupported platform: $kernel. Supported: macOS, Linux, Windows (Git Bash / WSL)."
+      ;;
+  esac
+}
+
+# kill_by_pattern terminates matching processes. Uses pkill on Unix-like hosts
+# (macOS, Linux, WSL, Git Bash when procps is installed). Falls back to
+# taskkill via a Python shim on native Windows where pkill is absent.
+kill_by_pattern() {
+  local pattern="$1"
+  if command -v pkill >/dev/null 2>&1; then
+    pkill -f "$pattern" 2>/dev/null || true
+    return 0
+  fi
+  python3 - "$pattern" <<'PY' 2>/dev/null || true
+import subprocess
+import sys
+
+pattern = sys.argv[1]
+if sys.platform == "win32":
+    # IMAGENAME eq match is a prefix-style glob on the .exe base name.
+    subprocess.run(
+        ["taskkill", "/F", "/FI", f"IMAGENAME eq {pattern}*"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+PY
+}
+
+# load_install_paths populates the per-agent CURSOR_*/CLAUDE_*/CLAUDE_DESKTOP_*
+# path variables from supported_agents.py resolve-paths, which mirrors each
+# plugin's setup/install.sh (Darwin, MINGW/MSYS/CYGWIN, Linux XDG).
+load_install_paths() {
+  local agent_type="$1"
+  python3 "$SUPPORTED_AGENT_HELPER" resolve-paths --agent-type "$agent_type"
+}
+
+_set_paths_for_agent() {
+  local agent_type="$1"
+  local paths_json
+  paths_json="$(load_install_paths "$agent_type")" || die "Failed to resolve install paths for ${agent_type}"
+
+  local install_root config_home state_home config_json psk_path
+  install_root="$(printf '%s' "$paths_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["install_root"])')"
+  config_home="$(printf '%s' "$paths_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["config_home"])')"
+  state_home="$(printf '%s' "$paths_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["state_home"])')"
+  config_json="$(printf '%s' "$paths_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["config_json"])')"
+  psk_path="$(printf '%s' "$paths_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["psk_path"])')"
+
+  case "$agent_type" in
+    cursor)
+      CURSOR_HOME="$config_home"
+      CURSOR_INSTALL_ROOT="$install_root"
+      CURSOR_CONFIG="$config_json"
+      CURSOR_PSK="$psk_path"
+      ;;
+    claude_code)
+      CLAUDE_HOME="$config_home"
+      CLAUDE_INSTALL_ROOT="$install_root"
+      CLAUDE_CONFIG="$config_json"
+      CLAUDE_PSK="$psk_path"
+      ;;
+    claude_desktop)
+      CLAUDE_DESKTOP_HOME="$config_home"
+      CLAUDE_DESKTOP_INSTALL_ROOT="$install_root"
+      CLAUDE_DESKTOP_CONFIG="$config_json"
+      CLAUDE_DESKTOP_PSK="$psk_path"
+      ;;
+    *)
+      die "_set_paths_for_agent: unexpected agent_type ${agent_type}"
+      ;;
+  esac
+}
+
+resolve_install_paths_for_all_agents() {
+  _set_paths_for_agent cursor
+  _set_paths_for_agent claude_code
+  _set_paths_for_agent claude_desktop
+}
+
 cleanup_demo_state() {
-  pkill -f sandbox_probe 2>/dev/null || true
-  pkill -f divergence_probe 2>/dev/null || true
+  kill_by_pattern sandbox_probe
+  kill_by_pattern divergence_probe
 
   local cleanup_script="$TRIGGERS_DIR/cleanup.py"
   if [[ -f "$cleanup_script" ]]; then
@@ -469,7 +589,7 @@ cleanup_demo_state() {
 trap cleanup_demo_state EXIT INT TERM
 
 validate_inputs() {
-  [[ "$(uname -s)" == "Darwin" ]] || die "This orchestrator currently supports macOS only."
+  detect_os_kernel
   [[ "$FOCUS" =~ ^(vuln|divergence|all)$ ]] || die "--focus must be one of: vuln, divergence, all"
   [[ "$ITERATIONS" =~ ^[0-9]+$ ]] || die "--iterations must be an integer"
   [[ "$SCENARIO_DURATION" =~ ^[0-9]+$ ]] || die "--scenario-duration must be an integer"
@@ -496,6 +616,7 @@ check_prereqs() {
   validate_supported_agent_type "$AGENT_TYPE" || \
     die "--agent-type must be one of: $(supported_agent_types_display)"
   load_registry_context
+  resolve_install_paths_for_all_agents
   if needs_behavioral_models; then
     assert_dir "$CURSOR_REPO"
     assert_dir "$CLAUDE_REPO"
@@ -680,7 +801,7 @@ ensure_pairing() {
 }
 
 seed_cursor_model() {
-  local install_root="$CURSOR_HOME/current"
+  local install_root="$CURSOR_INSTALL_ROOT"
   [[ -d "$install_root" ]] || return 0
   log "Cursor package: intent export and health check"
   run_cmd node "$install_root/service/cursor_extrapolator.mjs" --config "$CURSOR_CONFIG" --json \
@@ -690,7 +811,7 @@ seed_cursor_model() {
 }
 
 seed_claude_model() {
-  local install_root="$CLAUDE_HOME/current"
+  local install_root="$CLAUDE_INSTALL_ROOT"
   [[ -d "$install_root" ]] || return 0
   log "Claude package: intent export and health check"
   run_cmd node "$install_root/service/claude_code_extrapolator.mjs" --config "$CLAUDE_CONFIG" --json \
@@ -744,7 +865,7 @@ for a in json.load(sys.stdin):
 }
 
 run_cursor_snapshot() {
-  local install_root="$CURSOR_HOME/current"
+  local install_root="$CURSOR_INSTALL_ROOT"
   [[ -d "$install_root" ]] || return 0
   log "Cursor package snapshot"
   run_cmd node "$install_root/service/verdict_reader.mjs" --config "$CURSOR_CONFIG" --json \
@@ -752,7 +873,7 @@ run_cursor_snapshot() {
 }
 
 run_claude_snapshot() {
-  local install_root="$CLAUDE_HOME/current"
+  local install_root="$CLAUDE_INSTALL_ROOT"
   [[ -d "$install_root" ]] || return 0
   log "Claude package snapshot"
   run_cmd node "$install_root/service/verdict_reader.mjs" --config "$CLAUDE_CONFIG" --json \

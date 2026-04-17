@@ -119,8 +119,9 @@ Key capabilities:
 - **Fatal detection verification**: after each CVE trigger, the harness
   forces a vulnerability detector tick and asserts the expected detection
   was produced. Missing detections cause a hard test failure (non-zero exit).
-  Retry logic (5 attempts, 30s apart) accounts for L7 attribution timing on
-  macOS but does not paper over broken scenarios.
+  Retry logic (5 attempts, 30s apart) accounts for L7 attribution timing
+  (tuned against macOS but applied uniformly on Linux and Windows) and does
+  not paper over broken scenarios.
 - Per-leg diagnostics: each intent leg writes `round_<n>_<agent>.log` and
   `round_<n>_<agent>_diag.json` on failure
 - Merge analysis: records `get_behavioral_model` contributor slices and
@@ -268,13 +269,36 @@ because they rely on connection count rather than sustained traffic volume.
 
 ## Prerequisites
 
-- macOS (both scripts are macOS-validated)
+- macOS, Linux, or Windows (Git Bash / WSL). macOS remains the primary
+  validation target; the same bash scripts run on all three platforms and no
+  PowerShell port is required.
 - EDAMAME Security app running with MCP enabled on port 3000
 - `edamame_cli` built (`../edamame_cli/target/release/edamame_cli`)
 - `python3`, `node`, `curl`
 - For intent suite: agentic/LLM configured in the EDAMAME app
 - For demo script: `openclaw` CLI (OpenClaw), `claude` CLI + `ANTHROPIC_API_KEY`
-  (Claude Code)
+  (Claude Code). Both are optional -- when the CLIs are absent (typical on
+  Windows), `run_demo.sh` auto-pairs OpenClaw via `edamame_cli` RPC.
+
+### Platform notes
+
+- **Linux**: packet capture requires `CAP_NET_RAW` or root; the harness prints
+  a warning if neither is present.
+- **Windows (Git Bash / WSL)**: native `pkill` is not always available; both
+  `run_demo.sh` and `run_e2e_harness.sh` detect this and fall back to
+  `taskkill` via a small Python shim. Packet capture requires Npcap and an
+  elevated session -- start Git Bash / WSL as Administrator if capture RPCs
+  fail.
+- **Plugin install paths** are resolved through
+  `tests/e2e/supported_agents.py resolve-paths`, which mirrors each plugin's
+  `setup/install.sh` for Darwin, Linux (XDG), and Windows
+  (`APPDATA`/`LOCALAPPDATA`). The harness consumes the resolved
+  `config_home`, `data_home`/`install_root`, and `state_home` separately, so
+  Linux XDG layouts are respected rather than flattened.
+- **OpenClaw PSK**: `run_demo.sh` now defaults `OPENCLAW_PSK` to the path
+  `edamame_openclaw/setup/pair.sh` actually writes
+  (`~/.openclaw/edamame-openclaw/state/edamame-mcp.psk`), not the legacy
+  `~/.edamame_psk` location. The env var still overrides the default.
 
 ## Troubleshooting
 
