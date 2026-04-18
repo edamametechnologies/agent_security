@@ -24,7 +24,25 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
+
+
+TRANSIENT_ERROR_MARKERS = (
+    "tcp connect error",
+    "os error 10061",
+    "os error 111",
+    "Connection refused",
+    "No connection could be made",
+    "target machine actively refused",
+    "transport error",
+)
+
+
+def _is_transient_error(stderr: str) -> bool:
+    if not stderr:
+        return False
+    return any(marker in stderr for marker in TRANSIENT_ERROR_MARKERS)
 
 
 def find_cli_binary() -> str:
@@ -53,26 +71,58 @@ def find_cli_binary() -> str:
     )
 
 
-def cli_rpc(method: str, args: str | None = None, timeout: float = 30.0) -> object:
-    """Call an edamame_cli RPC method and return the parsed Python object."""
+def cli_rpc(
+    method: str,
+    args: str | None = None,
+    timeout: float = 30.0,
+    retries: int = 4,
+    retry_backoff: float = 2.0,
+) -> object:
+    """Call an edamame_cli RPC method and return the parsed Python object.
+
+    Retries transient transport errors (e.g. "connection refused") with
+    exponential backoff. The daemon RPC socket can momentarily refuse
+    connections on Windows CI runners under load (post-capture cleanup,
+    LLM adjudication bursts) even though the daemon process is alive;
+    a short retry window rides over those bubbles without masking a
+    genuinely crashed daemon (which stays unreachable across all retries).
+    """
     cli = find_cli_binary()
     cmd = [cli, "rpc", method]
     if args:
         cmd.append(args)
 
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"edamame_cli rpc {method} failed (rc={result.returncode}): "
-            f"{result.stderr.strip()}"
+    attempt = 0
+    last_error: RuntimeError | None = None
+    while attempt <= retries:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
         )
+        if result.returncode == 0:
+            return _parse_cli_output(result.stdout)
 
-    return _parse_cli_output(result.stdout)
+        stderr = result.stderr.strip()
+        last_error = RuntimeError(
+            f"edamame_cli rpc {method} failed (rc={result.returncode}): "
+            f"{stderr}"
+        )
+        if attempt >= retries or not _is_transient_error(stderr):
+            raise last_error
+
+        wait = retry_backoff ** attempt
+        sys.stderr.write(
+            f"  cli_rpc {method} transient error (attempt {attempt + 1}/{retries + 1}), "
+            f"retrying in {wait:.1f}s\n"
+        )
+        sys.stderr.flush()
+        time.sleep(wait)
+        attempt += 1
+
+    assert last_error is not None
+    raise last_error
 
 
 def _parse_cli_output(raw: str) -> object:
