@@ -41,7 +41,7 @@ simulate real-world attack patterns (network egress, credential access,
 process behavior) while `edamame_cli` verifies that EDAMAME detects and
 classifies the resulting activity.
 
-Eleven scenarios, each in `triggers/trigger_<name>.py`:
+Ten scenarios, each in `triggers/trigger_<name>.py`:
 
 | Scenario | Trigger script | Threat model | Detection mechanism |
 |----------|---------------|--------------|---------------------|
@@ -52,10 +52,15 @@ Eleven scenarios, each in `triggers/trigger_<name>.py`:
 | `memory_poisoning` | `trigger_memory_poisoning.py` | Palo Alto Unit 42 memory poisoning | token_exfiltration (anomalous session + sensitive open_files) |
 | `goal_drift` | `trigger_goal_drift.py` | Meta AI researcher incident (runaway agent) | Divergence engine (burst connections > 5 unexplained) |
 | `credential_sprawl` | `trigger_credential_sprawl.py` | OpenClaw #9627 + AMOS infostealer | token_exfiltration (multi-category credential labels) |
-| `tool_poisoning_effects` | `trigger_tool_poisoning_effects.py` | MCPTox tool poisoning (Luo et al., 2025) | token_exfiltration (HTTP POST exfil + sensitive open_files) |
 | `supply_chain_exfil` | `trigger_supply_chain_exfil.py` | [litellm 1.82.8 PyPI compromise](https://github.com/BerriAI/litellm/issues/24512) (March 2026) | credential_harvest (9-category credential + crypto harvest + HTTP POST octet-stream exfil; anomaly-independent) |
 | `npm_rat_beacon` | `trigger_npm_rat_beacon.py` | axios 1.14.1/0.30.4 npm supply chain RAT (31 March 2026) | token_exfiltration (Base64 JSON beacon + legacy IE UA + npm credential open_files) |
 | `file_events` | `trigger_file_events.py` | CVE-2025-30066 file system tampering (tj-actions/changed-files) | file_system_tampering (FIM sensitive file create/modify + temp directory file creation) |
+
+Adversarial evasion scenarios (iForest anomaly blind spots) are tracked separately
+in `edamame_core/tests/evasion/` rather than in the E2E CVE suite. Scenarios whose
+detection path depends on probabilistic ML scoring (e.g. slow-rate HTTP POST beacons,
+MCPTox-style downstream effects) belong there because their pass/fail on CI is not
+deterministic. See `edamame_core/ADVERSARIAL.md` (BS-8) for the current catalog.
 
 ## Orchestration Scripts
 
@@ -211,7 +216,6 @@ tests/e2e/
     trigger_memory_poisoning.py
     trigger_goal_drift.py
     trigger_credential_sprawl.py
-    trigger_tool_poisoning_effects.py
     trigger_supply_chain_exfil.py
     trigger_npm_rat_beacon.py
     trigger_file_events.py

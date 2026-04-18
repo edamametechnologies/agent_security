@@ -1223,7 +1223,6 @@ scenario_expected_check() {
     memory_poisoning)        echo "token_exfiltration" ;;
     goal_drift)              echo "divergence_verdict" ;;
     credential_sprawl)       echo "token_exfiltration" ;;
-    tool_poisoning_effects)  echo "token_exfiltration" ;;
     supply_chain_exfil)      echo "credential_harvest" ;;
     npm_rat_beacon)          echo "token_exfiltration" ;;
     file_events)             echo "file_system_tampering" ;;
@@ -1283,14 +1282,12 @@ SCENARIO_MARKERS = {
     'cve_token_exfil': ['_exfil_token', '_exfil'],
     'memory_poisoning': ['_memory_poison', 'memory_poisoned.md'],
     'credential_sprawl': ['_sprawl_key', '_sprawl', 'demo_openclaw_sprawl'],
-    'tool_poisoning_effects': ['_tool_poison', 'demo_openclaw_tool_poison'],
     'file_events': ['_fim_test', '_fim_suspicious'],
 }
 
 SCENARIO_PORTS = {
     'cve_token_exfil': [63169],
     'credential_sprawl': [63171],
-    'tool_poisoning_effects': [63172],
 }
 
 markers = [marker.lower() for marker in SCENARIO_MARKERS.get(scenario, [])]
@@ -1912,7 +1909,7 @@ print(len(sc))
 
 run_cve_suite() {
   local scenario duration rc=0
-  local scenarios=(blacklist_comm cve_token_exfil cve_sandbox_escape divergence memory_poisoning goal_drift credential_sprawl tool_poisoning_effects supply_chain_exfil npm_rat_beacon file_events)
+  local scenarios=(blacklist_comm cve_token_exfil cve_sandbox_escape divergence memory_poisoning goal_drift credential_sprawl supply_chain_exfil npm_rat_beacon file_events)
   ensure_capture_running
   run_injector_cleanup
   for scenario in "${scenarios[@]}"; do

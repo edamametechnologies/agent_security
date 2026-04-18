@@ -199,7 +199,6 @@ network sessions and file events independently of the reasoning plane.
 | `cve_sandbox_escape` | Process spawned from `/tmp/` with network egress | `sandbox_exploitation` (CVE-2026-24763) |
 | `memory_poisoning` | Anomalous egress with credential file handles | `token_exfiltration` |
 | `credential_sprawl` | Multi-category credential access (SSH + AWS + cloud + crypto) | `credential_harvest` |
-| `tool_poisoning_effects` | HTTP POST exfiltration with sensitive file handles | `token_exfiltration` |
 | `supply_chain_exfil` | 9-category credential harvest + HTTP POST octet-stream | `credential_harvest` |
 | `npm_rat_beacon` | Base64 JSON beacon with legacy IE UA + npm credentials | `token_exfiltration` |
 | `file_events` | Sensitive file create/modify in FIM-watched directories | `file_system_tampering` |

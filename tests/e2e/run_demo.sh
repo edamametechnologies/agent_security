@@ -287,7 +287,6 @@ VULN_SCENARIOS=(
   "cve_sandbox_escape"
   "memory_poisoning"
   "credential_sprawl"
-  "tool_poisoning_effects"
   "supply_chain_exfil"
   "npm_rat_beacon"
   "file_events"
