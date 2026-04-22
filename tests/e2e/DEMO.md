@@ -216,7 +216,7 @@ Common options:
 --post-wait 20             # Wait for EDAMAME ingestion after trigger (default: 20)
 --cooldown 10              # Pause between scenarios (default: 10)
 --iterations 2             # Repeat the full cycle
---agent-type openclaw      # Agent identity for state directory (default: openclaw)
+--agent-type cursor        # Override agent identity (optional; default: openclaw, or EDAMAME_AGENT_TYPE)
 ```
 
 ### Verify Manually
@@ -242,20 +242,25 @@ edamame_cli rpc get_file_events --pretty
 
 ### Run a Single Trigger Manually
 
-Each trigger is a standalone Python script:
+Each trigger is a standalone Python script. `--agent-type` is optional
+(default: `openclaw`, or `EDAMAME_AGENT_TYPE` env var). Pass it only when
+you want to drive a specific agent's state directory.
 
 ```bash
 cd triggers
 
 # Token exfiltration -- runs for 120 seconds
-python3 trigger_cve_token_exfil.py --agent-type openclaw --duration 120
+python3 trigger_cve_token_exfil.py --duration 120
 
 # Blacklist communication -- runs until interrupted
-python3 trigger_blacklist_comm.py --agent-type openclaw --duration 0
+python3 trigger_blacklist_comm.py --duration 0
 # Ctrl-C to stop
 
 # Cleanup all demo state
-python3 cleanup.py --agent-type openclaw
+python3 cleanup.py
+
+# Example: drive a different agent's state dir (optional)
+python3 trigger_cve_token_exfil.py --agent-type cursor --duration 120
 ```
 
 ---
@@ -289,7 +294,7 @@ Common options:
 ```bash
 --divergence-duration 90   # How long divergence triggers run (seconds, default: 90)
 --skip-intent              # Skip synthetic intent injection (use existing model)
---agent-type openclaw      # Agent identity (default: openclaw)
+--agent-type cursor        # Override agent identity (optional; default: openclaw, or EDAMAME_AGENT_TYPE)
 ```
 
 ### What Happens During Prep
@@ -336,7 +341,7 @@ This is equivalent to the default behavior (omitting `--focus`).
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--focus MODE` | `all` | `vuln`, `divergence`, or `all` |
-| `--agent-type NAME` | `openclaw` | Agent identity for trigger state and intent injection |
+| `--agent-type NAME` | `openclaw` (or `EDAMAME_AGENT_TYPE`) | Optional. Agent identity for trigger state and intent injection |
 | `--iterations N` | `1` | Number of full scenario cycles |
 | `--scenario-duration SEC` | `150` | Duration for vulnerability triggers |
 | `--divergence-duration SEC` | `90` | Duration for divergence triggers |
@@ -354,10 +359,11 @@ This is equivalent to the default behavior (omitting `--focus`).
 ## Cleanup
 
 All demo state is automatically cleaned up on exit (including Ctrl-C).
-To clean up manually:
+To clean up manually (use `--agent-type <name>` only if you drove a
+non-default agent identity; otherwise the defaults apply):
 
 ```bash
-python3 triggers/cleanup.py --agent-type openclaw
+python3 triggers/cleanup.py
 ```
 
 Existing configs are backed up under `~/.edamame_demo_backups/<timestamp>/`

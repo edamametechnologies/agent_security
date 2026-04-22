@@ -18,7 +18,7 @@ import sys
 import time
 from pathlib import Path
 
-from _common import resolve_agent_type, state_dir_for
+from _common import AGENT_TYPE_ARG_HELP, resolve_agent_type, state_dir_for
 from _native_udp_probe import (
     compile_udp_probe,
     ensure_state_dir,
@@ -63,7 +63,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--agent-type",
         default=None,
-        help="Agent type: openclaw|cursor|claude_code|claude_desktop (default: openclaw or EDAMAME_AGENT_TYPE)",
+        help=AGENT_TYPE_ARG_HELP,
     )
     p.add_argument("--state-dir", type=Path, default=None)
     return p.parse_args()

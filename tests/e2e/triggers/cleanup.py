@@ -15,7 +15,13 @@ import signal
 import sys
 from pathlib import Path
 
-from _common import resolve_agent_type, state_dir_for, file_prefix_for, upper_prefix_for
+from _common import (
+    AGENT_TYPE_ARG_HELP,
+    file_prefix_for,
+    resolve_agent_type,
+    state_dir_for,
+    upper_prefix_for,
+)
 
 PID_FILES = [
     "blacklist_comm.pid",
@@ -27,6 +33,7 @@ PID_FILES = [
     "credential_sprawl.pid",
     "supply_chain_exfil.pid",
     "npm_rat_beacon.pid",
+    "pgserve_postinstall.pid",
     "file_events.pid",
 ]
 
@@ -40,14 +47,14 @@ CREATED_MARKERS = [
     "credential_sprawl.created",
     "supply_chain_exfil.created",
     "npm_rat_beacon.created",
+    "pgserve_postinstall.created",
     "file_events.created",
 ]
 
 
 def parse_args():
     p = argparse.ArgumentParser(description="Clean up demo trigger state.")
-    p.add_argument("--agent-type", default=None,
-                   help="Agent type: openclaw|cursor|claude_code|claude_desktop (default: openclaw or EDAMAME_AGENT_TYPE)")
+    p.add_argument("--agent-type", default=None, help=AGENT_TYPE_ARG_HELP)
     p.add_argument("--state-dir", type=Path, default=None)
     return p.parse_args()
 
@@ -109,6 +116,19 @@ def main() -> int:
 
     for name in CREATED_MARKERS:
         remove_created_files(state_dir / name)
+
+    # Prune any empty subdirectories left behind by triggers that stage
+    # nested layouts (e.g. node_modules/pgserve/scripts/).  Walks
+    # bottom-up so child dirs go first.
+    for root, dirs, files in os.walk(state_dir, topdown=False):
+        if root == str(state_dir):
+            continue
+        if not dirs and not files:
+            try:
+                Path(root).rmdir()
+                print(f"  removed empty dir {root}")
+            except OSError:
+                pass
 
     try:
         state_dir.rmdir()

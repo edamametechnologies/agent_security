@@ -35,7 +35,13 @@ import sys
 import time
 from pathlib import Path
 
-from _common import resolve_agent_type, state_dir_for, file_prefix_for, upper_prefix_for
+from _common import (
+    AGENT_TYPE_ARG_HELP,
+    file_prefix_for,
+    resolve_agent_type,
+    state_dir_for,
+    upper_prefix_for,
+)
 
 PID_FILE = "memory_poisoning.pid"
 CREATED_MARKER = "memory_poisoning.created"
@@ -69,8 +75,7 @@ def parse_args() -> argparse.Namespace:
         description="Trigger memory-poisoning detection by simulating "
                     "credential + poisoned-memory access with undeclared egress."
     )
-    p.add_argument("--agent-type", default=None,
-                   help="Agent type: openclaw|cursor|claude_code|claude_desktop (default: openclaw or EDAMAME_AGENT_TYPE)")
+    p.add_argument("--agent-type", default=None, help=AGENT_TYPE_ARG_HELP)
     p.add_argument("--target-host", default=DEFAULT_TARGET_HOST)
     p.add_argument("--target-ip", default="",
                    help="Pre-resolved IP; skips DNS if set")

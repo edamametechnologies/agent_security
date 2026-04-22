@@ -38,7 +38,13 @@ import sys
 import time
 from pathlib import Path
 
-from _common import resolve_agent_type, state_dir_for, file_prefix_for, upper_prefix_for
+from _common import (
+    AGENT_TYPE_ARG_HELP,
+    file_prefix_for,
+    resolve_agent_type,
+    state_dir_for,
+    upper_prefix_for,
+)
 
 PID_FILE = "supply_chain_exfil.pid"
 CREATED_MARKER = "supply_chain_exfil.created"
@@ -55,8 +61,7 @@ def parse_args() -> argparse.Namespace:
                     "by holding broad credential files open while sending HTTP POST "
                     "with octet-stream payloads (litellm 1.82.8 pattern)."
     )
-    p.add_argument("--agent-type", default=None,
-                   help="Agent type: openclaw|cursor|claude_code|claude_desktop (default: openclaw or EDAMAME_AGENT_TYPE)")
+    p.add_argument("--agent-type", default=None, help=AGENT_TYPE_ARG_HELP)
     p.add_argument("--target-host", default=DEFAULT_TARGET_HOST)
     p.add_argument("--target-ip", default="",
                    help="Pre-resolved IP; skips DNS if set")

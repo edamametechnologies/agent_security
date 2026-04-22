@@ -75,10 +75,11 @@ so the demo follows the same registry metadata as the automated harness.
 See [DEMO.md](DEMO.md) for a step-by-step reproduction guide.
 
 ```bash
-# Run all scenarios (default)
+# Run all scenarios (default). --agent-type is optional (defaults to
+# openclaw, overridable via EDAMAME_AGENT_TYPE) -- omit it unless you
+# want to point triggers at a different agent's state directory.
 bash tests/e2e/run_demo.sh \
   --iterations 1 \
-  --agent-type openclaw \
   --scenario-duration 150 \
   --divergence-duration 90
 
