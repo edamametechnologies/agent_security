@@ -35,6 +35,8 @@ PID_FILES = [
     "npm_rat_beacon.pid",
     "pgserve_postinstall.pid",
     "file_events.pid",
+    "temp_modify.pid",
+    "nonsensitive_path.pid",
 ]
 
 CREATED_MARKERS = [
@@ -49,6 +51,8 @@ CREATED_MARKERS = [
     "npm_rat_beacon.created",
     "pgserve_postinstall.created",
     "file_events.created",
+    "temp_modify.created",
+    "nonsensitive_path.created",
 ]
 
 
@@ -85,6 +89,7 @@ def kill_from_pid_file(pid_file: Path) -> None:
 def remove_created_files(marker: Path) -> None:
     if not marker.exists():
         return
+    removed_parents: set[Path] = set()
     for line in marker.read_text("utf-8").splitlines():
         path = line.strip()
         if not path:
@@ -96,7 +101,19 @@ def remove_created_files(marker: Path) -> None:
                 print(f"  removed {target}")
             except OSError as e:
                 print(f"  cannot remove {target}: {e}")
+        # Track the parent so we can prune demo-created scratch directories
+        # (e.g. ``~/<pfx>_workspace_demo/``) once their files are gone.
+        removed_parents.add(target.parent)
     marker.unlink(missing_ok=True)
+    # Attempt a bottom-up rmdir on every recorded parent.  ``rmdir`` only
+    # succeeds if the directory is empty, so this is safe for real user
+    # directories like ``~/.ssh``; it will silently fail there.
+    for parent in sorted(removed_parents, key=lambda p: len(p.parts), reverse=True):
+        try:
+            parent.rmdir()
+            print(f"  removed empty dir {parent}")
+        except OSError:
+            pass
 
 
 def main() -> int:

@@ -1226,6 +1226,8 @@ scenario_expected_check() {
     supply_chain_exfil)      echo "credential_harvest" ;;
     npm_rat_beacon)          echo "token_exfiltration" ;;
     file_events)             echo "file_system_tampering" ;;
+    temp_modify)             echo "file_system_tampering" ;;
+    nonsensitive_path)       echo "sensitive_material_egress" ;;
     *)                       echo "" ;;
   esac
 }
@@ -1283,6 +1285,13 @@ SCENARIO_MARKERS = {
     'memory_poisoning': ['_memory_poison', 'memory_poisoned.md'],
     'credential_sprawl': ['_sprawl_key', '_sprawl', 'demo_openclaw_sprawl'],
     'file_events': ['_fim_test', '_fim_suspicious'],
+    # temp_modify has no markers: file_system_tampering findings raised for
+    # non-sensitive temp files carry an empty open_files list on purpose
+    # (see detect_file_system_tampering in vulnerability_detector.rs), so
+    # marker-based matching would filter the target findings out.  Rely on
+    # the baseline + clear-history sequence from prepare_scenario_baseline
+    # to keep file_events findings from leaking in.
+    'nonsensitive_path': ['workspace_demo'],
 }
 
 SCENARIO_PORTS = {
@@ -1341,6 +1350,30 @@ sessions = cli_rpc('get_anomalous_sessions')
 active = [s for s in sessions if isinstance(s, dict) and (s.get('status') or {}).get('active')]
 active_with_of = [s for s in active if len((s.get('l7') or {}).get('open_files', [])) > 0]
 print(f'{len(active)}|{len(active_with_of)}')
+" 2>/dev/null || echo "0|0"
+}
+
+# Readiness probe for sensitive_material_egress.  Unlike token_family_l7_status
+# (which polls get_anomalous_sessions), this probe counts every active session
+# that has L7 open_files attributed, regardless of the anomaly verdict -- the
+# whole point of sensitive_material_egress is that it fires without needing the
+# session to be flagged by iForest.  Emits "active_sessions|with_open_files".
+sensitive_egress_l7_status() {
+  python3 -c "
+import sys; sys.path.insert(0, '$TRIGGERS_DIR')
+from _edamame_cli import cli_rpc
+sessions = cli_rpc('get_current_sessions') or []
+active = [s for s in sessions if isinstance(s, dict) and (s.get('status') or {}).get('active')]
+with_of = 0
+for s in active:
+    l7 = s.get('l7') or {}
+    # sensitive_material_egress also accepts live_open_files, which is the
+    # enriched field populated by agentic::vulnerability_enrich during the
+    # detector tick.  Consider either list.
+    open_files = list(l7.get('open_files') or []) + list(l7.get('live_open_files') or [])
+    if open_files:
+        with_of += 1
+print(f'{len(active)}|{with_of}')
 " 2>/dev/null || echo "0|0"
 }
 
@@ -1429,7 +1462,7 @@ prepare_scenario_baseline() {
   VERIFY_BASELINE_VULN_TOTAL=0
 
   case "$expected" in
-    token_exfiltration|sandbox_exploitation|credential_harvest|file_system_tampering)
+    token_exfiltration|sandbox_exploitation|credential_harvest|file_system_tampering|sensitive_material_egress)
       if [[ "$DRY_RUN" -eq 1 ]]; then
         log "  [DRY-RUN] reset vulnerability detector state for $scenario ($expected)"
         return 0
@@ -1655,6 +1688,52 @@ wait_for_detection_readiness() {
         waited=$((waited + sleep_for))
       done
       log "  FIM readiness timeout for $scenario after ${max_wait}s; proceeding to verification"
+      ;;
+
+    sensitive_material_egress)
+      local waited=0
+      local interval=10
+      while ((waited < max_wait)); do
+        local found_status found found_current found_history
+        local l7_status active_sessions with_open_files
+
+        found_status="$(vulnerability_finding_status_for_scenario "$scenario" "$expected")"
+        found="${found_status%%|*}"
+        local found_rest="${found_status#*|}"
+        found_current="${found_rest%%|*}"
+        found_history="${found_rest#*|}"
+        if [[ "$found" -gt "$VERIFY_BASELINE_VULN_TOTAL" ]]; then
+          log "  Detection landed during warm-up: $((found - VERIFY_BASELINE_VULN_TOTAL)) new $expected finding(s) (current=$found_current history=$found_history baseline=$VERIFY_BASELINE_VULN_TOTAL)"
+          return 0
+        fi
+
+        # sensitive_material_egress is the anomaly-independent sibling of
+        # token_exfiltration: any active session whose (live_)open_files carry
+        # secret-like content can trigger it.  Wait for any active session
+        # with attributed open_files before proceeding -- we must NOT gate on
+        # anomalous sessions because the whole point of this check is that
+        # detection fires without an iForest verdict.
+        l7_status="$(sensitive_egress_l7_status)"
+        active_sessions="${l7_status%%|*}"
+        with_open_files="${l7_status#*|}"
+        if [[ "$with_open_files" -gt 0 ]]; then
+          log "  L7 readiness reached for $scenario: active_sessions=$active_sessions with_open_files=$with_open_files"
+          return 0
+        fi
+
+        local remaining=$((max_wait - waited))
+        local sleep_for="$interval"
+        if ((remaining < interval)); then
+          sleep_for="$remaining"
+        fi
+        if ((sleep_for <= 0)); then
+          break
+        fi
+        log "  Waiting for L7 readiness: active_sessions=$active_sessions with_open_files=$with_open_files (${waited}/${max_wait}s)"
+        run_cmd sleep "$sleep_for"
+        waited=$((waited + sleep_for))
+      done
+      log "  L7 readiness timeout for $scenario after ${max_wait}s; proceeding to verification"
       ;;
 
     *)
@@ -1886,6 +1965,40 @@ print(len(sc))
           log "  FIM status: total_events=$fim_total sensitive=$fim_sensitive (total=$found baseline=$VERIFY_BASELINE_VULN_TOTAL)"
         fi
         ;;
+
+      sensitive_material_egress)
+        local found found_current found_history l7_status
+        local found_status
+        found_status="$(vulnerability_finding_status_for_scenario "$scenario" "$expected")"
+        found="${found_status%%|*}"
+        local found_rest="${found_status#*|}"
+        found_current="${found_rest%%|*}"
+        found_history="${found_rest#*|}"
+        l7_status="$(sensitive_egress_l7_status)"
+        local active_sessions="${l7_status%%|*}"
+        local with_open_files="${l7_status#*|}"
+        if [[ "$found" -gt "$VERIFY_BASELINE_VULN_TOTAL" ]]; then
+          log "  DETECTED: $((found - VERIFY_BASELINE_VULN_TOTAL)) new $expected finding(s) (current=$found_current history=$found_history baseline=$VERIFY_BASELINE_VULN_TOTAL)"
+          detected=1
+        elif [[ "$with_open_files" -gt 0 ]]; then
+          log "  L7 overlap present; forcing immediate vulnerability detector tick..."
+          python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_vulnerability_detector_tick >/dev/null 2>&1 || true
+          sleep 3
+          found_status="$(vulnerability_finding_status_for_scenario "$scenario" "$expected")"
+          found="${found_status%%|*}"
+          found_rest="${found_status#*|}"
+          found_current="${found_rest%%|*}"
+          found_history="${found_rest#*|}"
+          if [[ "$found" -gt "$VERIFY_BASELINE_VULN_TOTAL" ]]; then
+            log "  DETECTED: $((found - VERIFY_BASELINE_VULN_TOTAL)) new $expected finding(s) after immediate detector tick (current=$found_current history=$found_history baseline=$VERIFY_BASELINE_VULN_TOTAL)"
+            detected=1
+          else
+            log "  L7 status: active_sessions=$active_sessions with_open_files=$with_open_files (total=$found baseline=$VERIFY_BASELINE_VULN_TOTAL after immediate tick)"
+          fi
+        else
+          log "  L7 status: active_sessions=$active_sessions with_open_files=$with_open_files (total=$found baseline=$VERIFY_BASELINE_VULN_TOTAL)"
+        fi
+        ;;
     esac
 
     if [[ "$detected" -eq 1 ]]; then
@@ -1909,7 +2022,7 @@ print(len(sc))
 
 run_cve_suite() {
   local scenario duration rc=0
-  local scenarios=(blacklist_comm cve_token_exfil cve_sandbox_escape divergence memory_poisoning goal_drift credential_sprawl supply_chain_exfil npm_rat_beacon file_events)
+  local scenarios=(blacklist_comm cve_token_exfil cve_sandbox_escape divergence memory_poisoning goal_drift credential_sprawl supply_chain_exfil npm_rat_beacon file_events temp_modify nonsensitive_path)
   ensure_capture_running
   run_injector_cleanup
   for scenario in "${scenarios[@]}"; do
@@ -1924,11 +2037,11 @@ run_cve_suite() {
     case "$scenario" in
       divergence|goal_drift) l7_wait=60 ;;
       blacklist_comm) l7_wait=30 ;;
-      file_events) l7_wait=15 ;;
+      file_events|temp_modify) l7_wait=15 ;;
       *) l7_wait=120 ;;
     esac
 
-    if [[ "$expected" == "token_exfiltration" || "$expected" == "sandbox_exploitation" || "$expected" == "credential_harvest" || "$expected" == "file_system_tampering" || "$expected" == "divergence_verdict" ]]; then
+    if [[ "$expected" == "token_exfiltration" || "$expected" == "sandbox_exploitation" || "$expected" == "credential_harvest" || "$expected" == "file_system_tampering" || "$expected" == "sensitive_material_egress" || "$expected" == "divergence_verdict" ]]; then
       local min_duration
       min_duration=$((l7_wait + (DETECTION_VERIFY_RETRIES * DETECTION_VERIFY_INTERVAL) + 30))
       if ((duration < min_duration)); then

@@ -290,6 +290,8 @@ VULN_SCENARIOS=(
   "supply_chain_exfil"
   "npm_rat_beacon"
   "file_events"
+  "temp_modify"
+  "nonsensitive_path"
 )
 
 DIVERGENCE_SCENARIOS=(
@@ -1193,10 +1195,10 @@ run_demo_loop() {
 
       capture_edamame_baseline "before_${scenario}"
 
-      if [[ "$scenario" == "file_events" ]]; then
+      if [[ "$scenario" == "file_events" || "$scenario" == "temp_modify" ]]; then
         python3 "$TRIGGERS_DIR/_edamame_cli.py" clear_file_events >/dev/null 2>&1 || true
         python3 "$TRIGGERS_DIR/_edamame_cli.py" start_file_monitor '[[]]' >/dev/null 2>&1 || true
-        log "Started FIM for file_events scenario"
+        log "Started FIM for $scenario scenario"
       fi
 
       run_injector_cleanup
@@ -1210,9 +1212,9 @@ run_demo_loop() {
       post_scenario_readout "$scenario"
       run_injector_cleanup
 
-      if [[ "$scenario" == "file_events" ]]; then
+      if [[ "$scenario" == "file_events" || "$scenario" == "temp_modify" ]]; then
         python3 "$TRIGGERS_DIR/_edamame_cli.py" stop_file_monitor >/dev/null 2>&1 || true
-        log "Stopped FIM after file_events scenario"
+        log "Stopped FIM after $scenario scenario"
       fi
 
       wait_for_edamame_recovery "$scenario"

@@ -41,7 +41,7 @@ simulate real-world attack patterns (network egress, credential access,
 process behavior) while `edamame_cli` verifies that EDAMAME detects and
 classifies the resulting activity.
 
-Ten scenarios, each in `triggers/trigger_<name>.py`:
+Twelve scenarios, each in `triggers/trigger_<name>.py`:
 
 | Scenario | Trigger script | Threat model | Detection mechanism |
 |----------|---------------|--------------|---------------------|
@@ -55,12 +55,16 @@ Ten scenarios, each in `triggers/trigger_<name>.py`:
 | `supply_chain_exfil` | `trigger_supply_chain_exfil.py` | [litellm 1.82.8 PyPI compromise](https://github.com/BerriAI/litellm/issues/24512) (March 2026) | credential_harvest (9-category credential + crypto harvest + HTTP POST octet-stream exfil; anomaly-independent) |
 | `npm_rat_beacon` | `trigger_npm_rat_beacon.py` | axios 1.14.1/0.30.4 npm supply chain RAT (31 March 2026) | token_exfiltration (Base64 JSON beacon + legacy IE UA + npm credential open_files) |
 | `file_events` | `trigger_file_events.py` | CVE-2025-30066 file system tampering (tj-actions/changed-files) | file_system_tampering (FIM sensitive file create/modify + temp directory file creation) |
+| `temp_modify` | `trigger_temp_modify.py` | Two-phase staged-payload drop: benign placeholder in /tmp followed by malicious overwrite (originally catalogued as evasion scenario 3) | file_system_tampering via content-scan on FIM modify events (script_like / network_command_like heuristics) |
+| `nonsensitive_path` | `trigger_nonsensitive_path.py` | Credentials staged outside the sensitive-path database (~/workspace/, IDE caches) while exfiltrating over routine HTTPS (originally catalogued as evasion scenario 4) | sensitive_material_egress (live_open_files + secret_content_scan; anomaly-independent) |
 
 Adversarial evasion scenarios (iForest anomaly blind spots) are tracked separately
 in `edamame_core/tests/evasion/` rather than in the E2E CVE suite. Scenarios whose
 detection path depends on probabilistic ML scoring (e.g. slow-rate HTTP POST beacons,
 MCPTox-style downstream effects) belong there because their pass/fail on CI is not
-deterministic. See `edamame_core/ADVERSARIAL.md` (BS-8) for the current catalog.
+deterministic. Scenarios whose deterministic detection path has been closed (temp
+modify content-scan, non-sensitive-path live open-file scan) graduate here as
+regression tests. See `edamame_core/ADVERSARIAL.md` (BS-8) for the current catalog.
 
 ## Orchestration Scripts
 
@@ -94,7 +98,7 @@ The `--focus` flag selects which demo category to run:
 
 | Mode | Scenarios | Prep |
 |------|-----------|------|
-| `vuln` | CVE/vulnerability triggers (blacklist, token-exfil, sandbox-escape, memory-poisoning, credential-sprawl, tool-poisoning, supply-chain-exfil, npm-rat-beacon, file-events) | Baseline capture only |
+| `vuln` | CVE/vulnerability triggers (blacklist, token-exfil, sandbox-escape, memory-poisoning, credential-sprawl, supply-chain-exfil, npm-rat-beacon, file-events, temp-modify, nonsensitive-path) | Baseline capture only |
 | `divergence` | Divergence triggers (divergence, goal-drift) | Seeds behavioral models + injects intent |
 | `all` | Both (default) | Seeds behavioral models + injects intent |
 
@@ -220,6 +224,8 @@ tests/e2e/
     trigger_supply_chain_exfil.py
     trigger_npm_rat_beacon.py
     trigger_file_events.py
+    trigger_temp_modify.py
+    trigger_nonsensitive_path.py
     cleanup.py
   run_demo.sh                      # Full demo orchestrator
   run_e2e_harness.sh               # Automated E2E harness
