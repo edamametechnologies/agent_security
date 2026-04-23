@@ -238,20 +238,31 @@ def compile_probe(state_dir: Path) -> Path | None:
 
 
 def create_launcher_wrapper(binary: Path, state_dir: Path) -> Path:
-    """Create a shell wrapper in /tmp/ that runs the binary as a child.
+    """Create a launcher wrapper in the temp state dir that runs the binary as a child.
 
-    The vuln detector checks l7.parent_process_path for /tmp/ patterns.
+    The vuln detector checks l7.parent_process_path for temp-dir patterns.
     The wrapper runs the binary (without exec) so the binary's parent PID
-    is the wrapper process, and parent_process_path = /tmp/.../sandbox_launcher.sh.
-    The wrapper waits for the child to exit so it stays alive as the parent
-    throughout the binary's lifetime.
+    is the wrapper process, and parent_process_path points at the wrapper
+    under %TEMP% or /tmp/. The wrapper waits for the child to exit so it
+    stays alive as the parent throughout the binary's lifetime.
+
+    On POSIX we emit a /bin/sh script (sandbox_launcher.sh).  On Windows we
+    emit a .cmd batch file that cmd.exe can execute natively.
     """
-    wrapper = state_dir / "sandbox_launcher.sh"
-    wrapper.write_text(
-        f'#!/bin/sh\n"{binary}" "$@"\n',
-        encoding="utf-8",
-    )
-    wrapper.chmod(0o755)
+    if sys.platform == "win32":
+        wrapper = state_dir / "sandbox_launcher.cmd"
+        wrapper.write_text(
+            "@echo off\r\n"
+            f'"{binary}" %*\r\n',
+            encoding="utf-8",
+        )
+    else:
+        wrapper = state_dir / "sandbox_launcher.sh"
+        wrapper.write_text(
+            f'#!/bin/sh\n"{binary}" "$@"\n',
+            encoding="utf-8",
+        )
+        wrapper.chmod(0o755)
     record_created(state_dir, wrapper)
     return wrapper
 
@@ -259,14 +270,30 @@ def create_launcher_wrapper(binary: Path, state_dir: Path) -> Path:
 def run_compiled(binary: Path, args: argparse.Namespace, state_dir: Path) -> int:
     wrapper = create_launcher_wrapper(binary, state_dir)
     pid_file = state_dir / PID_FILE
-    proc = subprocess.Popen(
-        [
+    # On Windows we invoke cmd.exe /c explicitly to execute the .cmd wrapper,
+    # because Popen([".cmd", ...]) can still bubble up WinError 193 in some
+    # Python distributions.  cmd.exe becomes the wrapper process and the
+    # compiled .exe inherits it as parent, giving us the temp-dir lineage.
+    if sys.platform == "win32":
+        launch_argv = [
+            "cmd.exe",
+            "/c",
             str(wrapper),
             args.target_ip,
             str(args.target_port),
             str(args.interval_ms),
             str(args.payload_bytes),
-        ],
+        ]
+    else:
+        launch_argv = [
+            str(wrapper),
+            args.target_ip,
+            str(args.target_port),
+            str(args.interval_ms),
+            str(args.payload_bytes),
+        ]
+    proc = subprocess.Popen(
+        launch_argv,
         stdout=sys.stdout,
         stderr=sys.stderr,
     )
