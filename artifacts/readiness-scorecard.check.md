@@ -1,4 +1,4 @@
-# ArXiv Readiness Scorecard
+# Publication Readiness Scorecard
 
 - Generated at: 2026-02-23T03:13:47Z
 - Verdict: **CONDITIONAL_GO**

@@ -4,14 +4,14 @@
 
 Authors: Frank Lyonnet, Antoine Clerget, Kave Salamatian
 
-This repository contains the arXiv draft, figure generation pipeline, and
+This repository contains the whitepaper draft, figure generation pipeline, and
 publication artifacts for the two-plane runtime security paper.
 
 ## Repository Structure
 
 ```
 paper/
-  arxiv_draft.md          # Canonical paper source (Markdown)
+  whitepaper_draft.md     # Canonical paper source (Markdown)
   CHANGELOG.md            # Paper revision history
   generate_figures.py     # Figure generation from SVG sources
   svg-to-pdf.lua          # Pandoc Lua filter for SVG-to-PDF
@@ -22,7 +22,7 @@ scripts/
   summarize_results.sh    # Recompute public summary from published NDJSON rows
   reproduce_results.sh    # Public artifact-level paper reproduction entrypoint
   preflight_publication.sh # Pre-publication consistency checks
-  arxiv_readiness_gate.sh # arXiv submission readiness gate
+  readiness_gate.sh       # Publication readiness gate
 tests/
   e2e/
     triggers/             # 11 CVE/divergence trigger scripts + cleanup
@@ -50,7 +50,7 @@ artifacts/
   live-paper-manifest.json # Canonical run manifest
   live-paper-results.ndjson # Canonical row-level live benchmark results
   paper-bundle/           # Generated outputs (md, tex, pdf)
-  arxiv-readiness-scorecard.* # Readiness assessment
+  readiness-scorecard.*   # Publication readiness assessment
 ```
 
 ## Prerequisites
@@ -68,7 +68,7 @@ artifacts/
 # Step 1: Build paper bundle (injects live metrics from benchmark results)
 bash scripts/build_paper_bundle.sh \
   <summary.json> <manifest.json> \
-  paper/arxiv_draft.md \
+  paper/whitepaper_draft.md \
   artifacts/paper-bundle
 
 # Step 2: Regenerate all formats
@@ -141,7 +141,7 @@ After regeneration, `artifacts/paper-bundle/` contains:
 
 ## Quick Links
 
-- [Canonical paper source](paper/arxiv_draft.md)
+- [Canonical paper source](paper/whitepaper_draft.md)
 - [Latest generated PDF](artifacts/paper-bundle/WHITEPAPER_GENERATED.pdf)
 - [Canonical claim index](docs/CLAIM_ARTIFACT_INDEX.md)
 - [Canonical benchmark summary](artifacts/live-paper-summary.json)

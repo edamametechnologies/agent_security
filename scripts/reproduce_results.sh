@@ -3,8 +3,8 @@
 #
 # This script is the paper-repo reproducibility entrypoint. It does not rerun the
 # full live benchmark environment; instead it recomputes the public summary from
-# the published NDJSON rows, regenerates the paper bundle, and reruns readiness
-# and publication checks. For a fresh live rerun, use tests/benchmark/run_live_suite.py.
+# the published NDJSON rows, regenerates the paper bundle, and reruns publication
+# readiness and preflight checks. For a fresh live rerun, use tests/benchmark/run_live_suite.py.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -22,7 +22,7 @@ Usage:
 This script:
   1. recomputes the public benchmark summary from the published NDJSON rows,
   2. rebuilds the paper bundle and generated PDF from those artifacts,
-  3. reruns arXiv readiness and publication preflight checks.
+  3. reruns publication readiness and preflight checks.
 
 For a fresh live benchmark rerun instead of artifact-level reproduction, run:
   python3 tests/benchmark/run_live_suite.py --mode live
@@ -74,7 +74,7 @@ PAPER_SUMMARY="$SUMMARY" \
 PAPER_MANIFEST="$MANIFEST" \
     bash "$SCRIPT_DIR/regen_paper.sh"
 
-bash "$SCRIPT_DIR/arxiv_readiness_gate.sh" "$SUMMARY" "$MANIFEST"
+bash "$SCRIPT_DIR/readiness_gate.sh" "$SUMMARY" "$MANIFEST"
 bash "$SCRIPT_DIR/preflight_publication.sh" "$SUMMARY" "$MANIFEST"
 
 echo ""

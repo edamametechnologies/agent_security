@@ -1,5 +1,5 @@
 #!/bin/bash
-# build_paper_bundle.sh - Build arXiv companion reproducibility bundle.
+# build_paper_bundle.sh - Build companion reproducibility bundle for the whitepaper.
 set -euo pipefail
 
 # sha256: use sha256sum on Linux, shasum on macOS
@@ -13,7 +13,7 @@ _sha256() {
 
 SUMMARY="${1:-artifacts/benchmark-summary.json}"
 MANIFEST="${2:-artifacts/run-manifest.json}"
-WHITEPAPER_SOURCE="${3:-paper/arxiv_draft.md}"
+WHITEPAPER_SOURCE="${3:-paper/whitepaper_draft.md}"
 SUPPORTING_EVIDENCE_SOURCE="${PAPER_SUPPORTING_EVIDENCE:-}"
 OUT_DIR="artifacts/paper-bundle"
 

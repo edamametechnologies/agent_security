@@ -67,7 +67,7 @@ jobs:
           bash "$SCRIPT_DIR/summarize_results.sh" --input "$RESULTS" --output "$SUMMARY"
           PAPER_RESULTS="$RESULTS" PAPER_SUMMARY="$SUMMARY" PAPER_MANIFEST="$MANIFEST" \
             bash "$SCRIPT_DIR/regen_paper.sh"
-          bash "$SCRIPT_DIR/arxiv_readiness_gate.sh" "$SUMMARY" "$MANIFEST"
+          bash "$SCRIPT_DIR/readiness_gate.sh" "$SUMMARY" "$MANIFEST"
           bash "$SCRIPT_DIR/preflight_publication.sh" "$SUMMARY" "$MANIFEST"
 
       - name: Slack alert on failure

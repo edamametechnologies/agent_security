@@ -9,8 +9,8 @@
 # Defaults:
 #   artifacts/live-paper-summary.json
 #   artifacts/live-paper-manifest.json
-#   artifacts/arxiv-readiness-scorecard.json
-#   paper/arxiv_draft.md
+#   artifacts/readiness-scorecard.json
+#   paper/whitepaper_draft.md
 #   docs/CLAIM_ARTIFACT_INDEX.md
 set -euo pipefail
 
@@ -26,8 +26,8 @@ PDF_BUILD_LOG="$REPO_DIR/artifacts/paper-bundle/WHITEPAPER_GENERATED.build.log"
 
 SUMMARY="${1:-$LOCAL_SUMMARY_DEFAULT}"
 MANIFEST="${2:-$LOCAL_MANIFEST_DEFAULT}"
-SCORECARD="${3:-$REPO_DIR/artifacts/arxiv-readiness-scorecard.json}"
-PAPER="${4:-$REPO_DIR/paper/arxiv_draft.md}"
+SCORECARD="${3:-$REPO_DIR/artifacts/readiness-scorecard.json}"
+PAPER="${4:-$REPO_DIR/paper/whitepaper_draft.md}"
 CLAIM_INDEX="${5:-$REPO_DIR/docs/CLAIM_ARTIFACT_INDEX.md}"
 
 declare -a ERRORS=()
@@ -235,7 +235,7 @@ fi
 metrics_start_count="$(grep -Fc "<!-- AUTO_METRICS_START -->" "$PAPER" || true)"
 metrics_end_count="$(grep -Fc "<!-- AUTO_METRICS_END -->" "$PAPER" || true)"
 if [ "$metrics_start_count" -ne 1 ] || [ "$metrics_end_count" -ne 1 ]; then
-    add_error "paper/arxiv_draft.md must contain exactly one AUTO_METRICS_START/END marker pair"
+    add_error "paper/whitepaper_draft.md must contain exactly one AUTO_METRICS_START/END marker pair"
 fi
 
 assert_absent_pattern "stale model baseline (gpt-4o)" 'openai/gpt-4o' "$PAPER"

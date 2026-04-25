@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate all paper figures as high-resolution PNGs and SVGs for arxiv_draft."""
+"""Generate all paper figures as high-resolution PNGs and SVGs for the whitepaper draft."""
 import json
 import re
 import textwrap

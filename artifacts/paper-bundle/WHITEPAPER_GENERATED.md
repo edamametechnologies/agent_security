@@ -3,7 +3,7 @@
 ## A Practical Two-Plane Approach for OpenClaw-Class Agents
 
 Authors: Frank Lyonnet, Antoine Clerget, Kave Salamatian  
-Status: arXiv draft (not submitted)  
+Status: Working draft  
 Version: 2026-03-17  
 
 ## Abstract
@@ -1211,7 +1211,7 @@ scenario set, not a partial provisional subset.*
 <!-- AUTO_METRICS_END -->
 
 **Readiness note.** The current committed lineage passes the repo's publication
-gate: `artifacts/arxiv-readiness-scorecard.json` is `GO` because the precision
+gate: `artifacts/readiness-scorecard.json` is `GO` because the precision
 CI95 lower bound is 0.988, the recall CI95 lower bound is 0.876, and the
 skipped-run ratio is 6.4%.
 

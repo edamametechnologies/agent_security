@@ -1,5 +1,5 @@
 #!/bin/bash
-# arxiv_readiness_gate.sh - Compute arXiv readiness scorecard from live data.
+# readiness_gate.sh - Compute publication readiness scorecard from live data.
 #
 # All criteria are evaluated against trace-backed live benchmark results.
 # Synthetic/replay data is not accepted.
@@ -12,9 +12,9 @@ LOCAL_MANIFEST_DEFAULT="$REPO_DIR/artifacts/live-paper-manifest.json"
 
 SUMMARY="${1:-$LOCAL_SUMMARY_DEFAULT}"
 MANIFEST="${2:-$LOCAL_MANIFEST_DEFAULT}"
-REPORT_MD="${3:-$REPO_DIR/artifacts/arxiv-readiness-scorecard.md}"
-REPORT_JSON="${4:-$REPO_DIR/artifacts/arxiv-readiness-scorecard.json}"
-ENFORCE="${ENFORCE_ARXIV_GATE:-false}"
+REPORT_MD="${3:-$REPO_DIR/artifacts/readiness-scorecard.md}"
+REPORT_JSON="${4:-$REPO_DIR/artifacts/readiness-scorecard.json}"
+ENFORCE="${ENFORCE_READINESS_GATE:-false}"
 
 required_files=("$SUMMARY" "$MANIFEST")
 for file in "${required_files[@]}"; do
@@ -201,7 +201,7 @@ jq -n \
     }' > "$REPORT_JSON"
 
 jq -r '
-  "# ArXiv Readiness Scorecard\n\n" +
+  "# Publication Readiness Scorecard\n\n" +
   "- Generated at: " + .generated_at_utc + "\n" +
   "- Verdict: **" + .verdict + "**\n" +
   "- Source: " + .evidence_source.mode + " (" + (.evidence_source.total_runs|tostring) + " runs, " + (.evidence_source.seeds|tostring) + " seeds)\n" +
@@ -213,14 +213,14 @@ jq -r '
   ) | join("\n")) + "\n"
 ' "$REPORT_JSON" > "$REPORT_MD"
 
-echo "Wrote arXiv readiness reports:"
+echo "Wrote publication readiness reports:"
 echo "  $REPORT_JSON"
 echo "  $REPORT_MD"
 
 if [ "$ENFORCE" = "true" ]; then
     verdict="$(jq -r '.verdict' "$REPORT_JSON")"
     if [ "$verdict" = "NO_GO" ]; then
-        echo "ArXiv readiness enforce mode: NO_GO"
+        echo "Publication readiness enforce mode: NO_GO"
         exit 1
     fi
 fi

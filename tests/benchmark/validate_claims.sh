@@ -7,7 +7,7 @@
 set -euo pipefail
 
 SUMMARY="artifacts/benchmark-summary.json"
-TARGETS=("README.md" "paper/arxiv_draft.md")
+TARGETS=("README.md" "paper/whitepaper_draft.md")
 MIN_RUNS="${CLAIMS_MIN_RUNS:-30}"
 MIN_PRECISION="${CLAIMS_MIN_PRECISION:-0.80}"
 MIN_RECALL="${CLAIMS_MIN_RECALL:-0.80}"
