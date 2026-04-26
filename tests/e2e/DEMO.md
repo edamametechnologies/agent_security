@@ -99,9 +99,9 @@ the same path `pair.sh` writes
 (`~/.openclaw/edamame-openclaw/state/edamame-mcp.psk`), not the legacy
 `~/.edamame_psk` location.
 
-### EDAMAME App Setup Checklist
+### EDAMAME Security Setup Checklist
 
-Before running any demo, verify the following inside the EDAMAME app:
+Before running any demo, verify the following inside the EDAMAME Security app:
 
 - [ ] **Traffic capture is ON** -- Go to the **System** tab and confirm
       traffic capture is running (sessions should be visible). Without
@@ -109,12 +109,12 @@ Before running any demo, verify the following inside the EDAMAME app:
 
 - [ ] **LLM is configured** -- Go to **AI > AI Settings** and configure an
       LLM provider. Two options:
-  - *EDAMAME Portal*: Sign in to EDAMAME Cloud (OAuth) under the
+  - *EDAMAME Portal*: Sign in to EDAMAME Portal (OAuth) under the
     "EDAMAME Portal" section. This routes LLM calls through the
     EDAMAME Portal proxy.
   - *Own LLM*: Configure your own provider (OpenAI API key, Anthropic
     key, or local Ollama endpoint) under the LLM provider section.
-  - The app shows "Sign in to EDAMAME Cloud or configure your own LLM
+  - The app shows "Sign in to EDAMAME Portal or configure your own LLM
     to enable" if neither is set.
 
 - [ ] **AI Security Watchdog or AI Security Assistant is ON** -- On the
