@@ -115,6 +115,43 @@
       "registry_icon_relpath": "claude_desktop/icon.svg"
     },
     {
+      "agent_type": "codex",
+      "display_name": "EDAMAME for Codex CLI",
+      "description": "OpenAI Codex CLI workstation integration with transcript ingest, pairing, verdicts, and health checks.",
+      "repo_name": "edamame_codex",
+      "strategy_kind": "workstation_stdio_mcp",
+      "sort_order": 35,
+      "requires_workspace_arg": true,
+      "repo_scripts": {
+        "install_unix": "setup/install.sh",
+        "install_windows": "setup/install.ps1",
+        "uninstall_unix": "setup/uninstall.sh",
+        "uninstall_windows": "setup/uninstall.ps1",
+        "healthcheck_relpath": "service/healthcheck_cli.mjs"
+      },
+      "install_layout": {
+        "install_base": "data_dir",
+        "install_relative_path": "codex-edamame/current",
+        "config_kind": "platform_config_slug",
+        "config_slug": "codex-edamame",
+        "state_kind": "platform_state_slug",
+        "state_slug": "codex-edamame",
+        "bundle_icon_relpath": "assets/plugin_codex.png"
+      },
+      "mcp": {
+        "server_key": "edamame-codex",
+        "config_targets": [
+          "codex_cli_config"
+        ]
+      },
+      "e2e": {
+        "repo_env_var": "CODEX_REPO",
+        "intent_script": "tests/e2e_inject_intent.sh",
+        "intent_timeout_seconds": 900
+      },
+      "registry_icon_relpath": "codex/icon.svg"
+    },
+    {
       "agent_type": "openclaw",
       "display_name": "EDAMAME for OpenClaw",
       "description": "OpenClaw plugin bundle with skills, health checks, and local plugin enablement.",
