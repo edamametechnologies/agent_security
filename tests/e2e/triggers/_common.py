@@ -13,7 +13,7 @@ import os
 import platform
 from pathlib import Path
 
-VALID_AGENT_TYPES = ("openclaw", "cursor", "claude_code", "claude_desktop")
+VALID_AGENT_TYPES = ("openclaw", "cursor", "claude_code", "claude_desktop", "codex")
 DEFAULT_AGENT_TYPE = "openclaw"
 
 # Canonical help string for every trigger's --agent-type flag. Centralized so

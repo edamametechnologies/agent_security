@@ -159,7 +159,7 @@ duplicating agent lists in bash.
 All triggers accept `--agent-type <supported-agent-type>` (default:
 `openclaw`, or read from `EDAMAME_AGENT_TYPE` env var). The registry-backed
 harnesses currently validate against `openclaw`, `cursor`, `claude_code`,
-and `claude_desktop`. This determines:
+`claude_desktop`, and `codex`. This determines:
 
 - **STATE_DIR**: `/tmp/edamame_{agent_type}_demo`
 - **File prefix**: `demo_{agent_type}_` (for `~/.ssh/`, `~/.aws/`, etc.)

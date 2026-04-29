@@ -322,7 +322,7 @@ restore_capture_state() {
   log "Harness teardown: running injector cleanup for all agent types"
   local cleanup_path="$TRIGGERS_DIR/cleanup.py"
   if [[ -f "$cleanup_path" ]]; then
-    for at in openclaw cursor claude_code claude_desktop; do
+    for at in openclaw cursor claude_code claude_desktop codex; do
       python3 "$cleanup_path" --agent-type "$at" 2>/dev/null || true
     done
   fi
