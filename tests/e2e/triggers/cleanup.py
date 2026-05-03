@@ -102,8 +102,12 @@ def remove_created_files(marker: Path) -> None:
             except OSError as e:
                 print(f"  cannot remove {target}: {e}")
         # Track the parent so we can prune demo-created scratch directories
-        # (e.g. ``~/<pfx>_workspace_demo/``) once their files are gone.
-        removed_parents.add(target.parent)
+        # (e.g. ``~/<pfx>_workspace_demo/``) once their files are gone.  The
+        # top-level state dir is pruned once at the end of main(); do not add
+        # it here or one marker can remove it while later markers are still
+        # being processed.
+        if target.parent != marker.parent:
+            removed_parents.add(target.parent)
     marker.unlink(missing_ok=True)
     # Attempt a bottom-up rmdir on every recorded parent.  ``rmdir`` only
     # succeeds if the directory is empty, so this is safe for real user
@@ -150,6 +154,10 @@ def main() -> int:
     try:
         state_dir.rmdir()
         print(f"  removed {state_dir}")
+    except FileNotFoundError:
+        # Another cleanup path (or a concurrent cleanup process from a retried
+        # scenario) already removed it. Cleanup is idempotent; this is success.
+        pass
     except OSError:
         remaining = list(state_dir.iterdir())
         if remaining:
