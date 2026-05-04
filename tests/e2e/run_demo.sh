@@ -673,7 +673,11 @@ install_openclaw_surface() {
 
   log "Refreshing OpenClaw extension and skills from local source"
 
-  # Pre-install: back up existing state so the demo can restore later
+  # Pre-install: back up existing state so the demo can restore later.
+  # The legacy edamame-extrapolator skill was removed in favour of the
+  # compiled extrapolator_run_cycle plugin tool plus EDAMAME's host-side
+  # transcript observer; back up its directory so older installs can be
+  # cleanly restored if the demo aborts.
   mkdir -p "$OPENCLAW_HOME/extensions" "$OPENCLAW_HOME/skills"
   backup_if_exists "$OPENCLAW_HOME/extensions/edamame" "$BACKUP_ROOT/openclaw/extensions-edamame"
   backup_if_exists "$OPENCLAW_HOME/extensions/edamame-mcp" "$BACKUP_ROOT/openclaw/extensions-edamame-mcp"
@@ -681,6 +685,10 @@ install_openclaw_surface() {
   backup_if_exists "$OPENCLAW_HOME/skills/edamame-cortex-extrapolator" "$BACKUP_ROOT/openclaw/skills-edamame-cortex-extrapolator"
   backup_if_exists "$OPENCLAW_HOME/skills/edamame-posture" "$BACKUP_ROOT/openclaw/skills-edamame-posture"
   run_cmd rm -rf "$OPENCLAW_HOME/extensions/edamame-mcp"
+  # Clean up legacy skill directories from older installs.
+  run_cmd rm -rf \
+    "$OPENCLAW_HOME/skills/edamame-extrapolator" \
+    "$OPENCLAW_HOME/skills/edamame-cortex-extrapolator"
 
   # Delegate to the canonical install script (same pattern as Cursor and Claude Code)
   run_cmd bash "$OPENCLAW_REPO/setup/install.sh"
@@ -688,15 +696,8 @@ install_openclaw_surface() {
   # Post-install: stage bundled skills inside the extension directory
   # (the plugin manifest declares skills relative to the extension root)
   run_cmd mkdir -p \
-    "$OPENCLAW_HOME/extensions/edamame/skills/edamame-extrapolator" \
     "$OPENCLAW_HOME/extensions/edamame/skills/edamame-posture"
-  run_cmd cp "$OPENCLAW_REPO/skill/edamame-extrapolator/SKILL.md" "$OPENCLAW_HOME/extensions/edamame/skills/edamame-extrapolator/SKILL.md"
   run_cmd cp "$OPENCLAW_REPO/skill/edamame-posture/SKILL.md" "$OPENCLAW_HOME/extensions/edamame/skills/edamame-posture/SKILL.md"
-
-  # Post-install: create cortex-extrapolator alias used by some OpenClaw configs
-  run_cmd rm -rf "$OPENCLAW_HOME/skills/edamame-cortex-extrapolator"
-  run_cmd mkdir -p "$OPENCLAW_HOME/skills/edamame-cortex-extrapolator"
-  run_cmd cp "$OPENCLAW_REPO/skill/edamame-extrapolator/SKILL.md" "$OPENCLAW_HOME/skills/edamame-cortex-extrapolator/SKILL.md"
 }
 
 auto_pair_via_rpc() {
@@ -1144,7 +1145,7 @@ baseline_round() {
 seed_models_with_agent_activity() {
   run_openclaw_agent_prompt \
     "extrapolator seed" \
-    "Use the edamame-extrapolator skill. Always try compiled mode first, run one extrapolator cycle, then confirm whether a behavioral model exists for this OpenClaw deployment."
+    "Run one cycle of the compiled extrapolator_run_cycle EDAMAME tool, then confirm whether a behavioral model exists for this OpenClaw deployment via get_behavioral_model."
 
   run_claude_agent_prompt \
     "intent export seed" \

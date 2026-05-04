@@ -21,18 +21,21 @@ SRC_EXT="$SRC_OPENCLAW/extensions/edamame-mcp"
 
 mkdir -p "$SKILLS_DIR" "$OPENCLAW_HOME/extensions"
 
-# Remove stale EDAMAME skill directories that can mask current behavior.
+# Remove stale EDAMAME skill directories that can mask current behavior,
+# including the legacy edamame-extrapolator skill that has been removed in
+# favour of the compiled extrapolator_run_cycle plugin tool plus EDAMAME's
+# host-side transcript observer.
 for stale_dir in "$SKILLS_DIR"/edamame-*; do
     [ -d "$stale_dir" ] || continue
     stale_base="$(basename "$stale_dir")"
     case "$stale_base" in
-        edamame-extrapolator|edamame-posture) ;;
+        edamame-posture) ;;
         *) rm -rf "$stale_dir" ;;
     esac
 done
 
 # Always refresh current skills from source-of-truth in this workspace.
-for skill in edamame-extrapolator edamame-posture; do
+for skill in edamame-posture; do
     if [ ! -f "$SRC_SKILLS/$skill/SKILL.md" ]; then
         echo "ERROR: missing source skill file: $SRC_SKILLS/$skill/SKILL.md" >&2
         exit 1
@@ -53,7 +56,7 @@ cp "$SRC_EXT/index.ts" "$EXT_DIR/index.ts"
 
 # Mirror bundled skills under the extension path to satisfy plugin skill lookup.
 mkdir -p "$EXT_DIR/skills"
-for skill in edamame-extrapolator edamame-posture; do
+for skill in edamame-posture; do
     mkdir -p "$EXT_DIR/skills/$skill"
     cp "$SRC_SKILLS/$skill/SKILL.md" "$EXT_DIR/skills/$skill/SKILL.md"
     if [ -f "$SRC_SKILLS/$skill/clawhub.json" ]; then
@@ -111,7 +114,9 @@ skills = data.get("skills") or []
 if "skills/edamame-posture" not in skills:
     raise SystemExit("ERROR: plugin manifest missing skills/edamame-posture")
 
-expected = {"skills/edamame-extrapolator", "skills/edamame-posture"}
+# edamame-extrapolator was removed; flag any leftover references and any other
+# unknown edamame-* skills.
+expected = {"skills/edamame-posture"}
 unexpected = [
     s for s in skills
     if isinstance(s, str) and s.startswith("skills/edamame-") and s not in expected

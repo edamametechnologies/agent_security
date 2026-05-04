@@ -169,7 +169,7 @@ canonical model, then correlates against live host telemetry to emit verdicts:
 | MCP plugin / bridge | `edamame_openclaw/extensions/edamame/index.ts` | `edamame_cursor/bridge/cursor_edamame_mcp.mjs` | `edamame_claude_code/bridge/claude_code_edamame_mcp.mjs` |
 | Extrapolator service | (in-session skill) | `edamame_cursor/service/cursor_extrapolator.mjs` | `edamame_claude_code/service/claude_code_extrapolator.mjs` |
 | Transcript adapter | (gateway API, compiled in plugin) | `edamame_cursor/adapters/session_prediction_adapter.mjs` | `edamame_claude_code/adapters/session_prediction_adapter.mjs` |
-| Skill contract | `edamame_openclaw/skill/edamame-extrapolator/SKILL.md` | `edamame_cursor/skills/divergence-monitor/SKILL.md` | `edamame_claude_code/skills/divergence-monitor/SKILL.md` |
+| Skill contract | (compiled into `edamame_openclaw/extensions/edamame/index.ts`) | `edamame_cursor/skills/divergence-monitor/SKILL.md` | `edamame_claude_code/skills/divergence-monitor/SKILL.md` |
 | Refresh trigger | System cron | `createCursorDrivenRefresh()` | `createClaudeCodeDrivenRefresh()` |
 
 ## Future Considerations
