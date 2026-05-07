@@ -64,6 +64,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target-ip", default="1.0.0.1")
     parser.add_argument("--target-port", type=int, default=63169)
     parser.add_argument("--target-count", type=int, default=15)
+    parser.add_argument("--payload-bytes", type=int, default=256)
     parser.add_argument("--duration", type=float, default=45.0)
     parser.add_argument("--interval", type=float, default=0.2)
     parser.add_argument("--post-wait", type=float, default=8.0)

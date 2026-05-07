@@ -58,6 +58,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target-ip", default="1.0.0.1")
     parser.add_argument("--target-port", type=int, default=63169)
     parser.add_argument("--target-count", type=int, default=15)
+    parser.add_argument("--payload-bytes", type=int, default=256)
     parser.add_argument("--duration", type=float, default=60.0)
     parser.add_argument("--interval", type=float, default=0.5)
     parser.add_argument("--post-wait", type=float, default=12.0)
@@ -195,18 +196,24 @@ int main(int argc, char **argv) {
             argv[0], socket_count, handle_count);
     fflush(stdout);
 
-    char payload[1200];
-    memset(payload, 'D', sizeof(payload));
+    const char *payload_raw = getenv("EDAMAME_DEMO_PAYLOAD_BYTES");
+    int payload_size = payload_raw ? atoi(payload_raw) : 256;
+    if (payload_size < 64) payload_size = 64;
+    if (payload_size > 1400) payload_size = 1400;
+    char *payload = malloc((size_t)payload_size);
+    if (!payload) return 1;
+    memset(payload, 'D', (size_t)payload_size);
     double started = monotonic_seconds();
     while (keep_running && monotonic_seconds() - started < duration) {
         for (int i = 0; i < socket_count; i++) {
-            (void)send(sockets[i], payload, sizeof(payload), 0);
+            (void)send(sockets[i], payload, (size_t)payload_size, 0);
         }
         usleep((useconds_t)(interval * 1000000.0));
     }
 
     for (int i = 0; i < socket_count; i++) close(sockets[i]);
     for (int i = 0; i < handle_count; i++) close(handles[i]);
+    free(payload);
     free(targets_copy);
     return 0;
 }
@@ -244,6 +251,7 @@ def build_env(
             "EDAMAME_DEMO_TARGET_IP": args.target_ip,
             "EDAMAME_DEMO_TARGET_PORT": str(args.target_port),
             "EDAMAME_DEMO_UDP_TARGETS": ",".join(f"{ip}:{port}" for ip, port in udp_targets(args)),
+            "EDAMAME_DEMO_PAYLOAD_BYTES": str(getattr(args, "payload_bytes", 256)),
             "EDAMAME_DEMO_DURATION_SECS": str(args.duration),
             "EDAMAME_DEMO_INTERVAL_SECS": str(args.interval),
             "EDAMAME_DEMO_CANARY_FILES": "|".join(str(path) for path in canaries),
