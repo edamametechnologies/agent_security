@@ -2,7 +2,8 @@
 
 ## Executive Risk Story
 
-For stage demos, use `spectacular_demo.py`. It shows the story end to end:
+For stage demos, use `spectacular_demo.py` as Part 1. It shows the
+provider-prevention plus EDAMAME runtime-correlation story end to end:
 
 1. A realistic npm package fixture is created with `package.json`,
    `scripts/check_registry.js`, and a hidden README prompt injection.
@@ -18,6 +19,17 @@ For stage demos, use `spectacular_demo.py`. It shows the story end to end:
    lineage, canary file access, unexpected egress, vulnerability findings, and
    divergence from the declared task.
 7. The script writes a self-contained HTML incident report.
+
+Part 2 of the recommended video then pivots to EDAMAME's broader
+vulnerability detector with safe replay triggers for 2026-style incidents:
+
+- `trigger_supply_chain_exfil.py`: litellm 1.82.8 PyPI-style broad
+  credential harvesting and exfiltration behavior.
+- `trigger_npm_rat_beacon.py`: axios npm compromise-style dropper and RAT
+  beacon behavior.
+- `trigger_file_events.py`: file-system tampering via FIM.
+- `trigger_nonsensitive_path.py`: secret-like material staged outside the
+  standard sensitive-path database, then used during egress.
 
 ```bash
 cd /Users/flyonnet/Programming/agent_security/tests/e2e/demos/prompt_injection_rogue_curl
@@ -37,8 +49,15 @@ handles the direct prompt-injection text. EDAMAME covers what remains missing:
 runtime evidence when a poisoned tool, weaker runner, package script, or
 compromised verifier actually touches canaries and makes unexpected egress.
 
+The second part should stay simple on video: run the litellm-style replay live,
+optionally run the axios-style replay if there is time, and keep EDAMAME on
+screen through `AI Assistant` > `Security`, `AI Assistant` > `History`, optional
+notification channels, and `edamame_cli` proof snapshots.
+
 The lower-level `risk_story_demo.py` keeps the same concept with a smaller
 fixture and less reporting. Use it for debugging the EDAMAME signal path.
+
+For a shot-by-shot recording plan, use `VIDEO_SCENARIO.md`.
 
 ## Lower-Level Fixture
 

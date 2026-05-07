@@ -432,7 +432,16 @@ def write_incident_report(
     <h2>Demo Message</h2>
     <div class="card">
       <p><b>Agent provider:</b> catches the direct prompt-injection text.</p>
-      <p><b>EDAMAME:</b> catches the missing layer: what actually happened on the endpoint when a poisoned tool or weaker runner executed.</p>
+      <p><b>EDAMAME:</b> is the front-line runtime layer: it catches what actually happened on the endpoint when a poisoned tool or weaker runner executed.</p>
+    </div>
+
+    <h2>Part 2: Front-Line Coverage Replay</h2>
+    <div class="card">
+      <p>The video should keep EDAMAME on screen and use one short replay to prove breadth. Recommended live replay: litellm-style PyPI credential harvesting. Optional extra proof: axios-style npm RAT beaconing, then mention the full replay suite.</p>
+      <pre>python3 tests/e2e/triggers/trigger_supply_chain_exfil.py --agent-type cursor --duration 45
+python3 tests/e2e/triggers/cleanup.py --agent-type cursor
+python3 tests/e2e/triggers/trigger_npm_rat_beacon.py --agent-type cursor --duration 45 --interval 5</pre>
+      <p>Show EDAMAME under AI Assistant &gt; Security, AI Assistant &gt; History, optional notification channels, and CLI proof snapshots. Keep the story simple: provider blocks text; EDAMAME secures the endpoint.</p>
     </div>
   </main>
 </body>
@@ -489,6 +498,16 @@ def main() -> int:
     report_path = runtime_root / "incident_report.html"
     write_incident_report(report_path, provider, verifier, evidence, workspace, curl_binary, demo_home, args)
     print(f"\nincident_report={report_path}")
+    print("\n== Part 2 Handoff: Front-Line Coverage Replay ==")
+    print("Show EDAMAME AI Assistant > Security, then AI Assistant > History.")
+    print("Recommended live replay:")
+    print("  python3 tests/e2e/triggers/trigger_supply_chain_exfil.py --agent-type cursor --duration 45")
+    print("Optional axios-style proof:")
+    print("  python3 tests/e2e/triggers/cleanup.py --agent-type cursor")
+    print("  python3 tests/e2e/triggers/trigger_npm_rat_beacon.py --agent-type cursor --duration 45 --interval 5")
+    print("After each trigger:")
+    print("  ../edamame_cli/target/release/edamame_cli rpc run_vulnerability_detector_tick")
+    print("  ../edamame_cli/target/release/edamame_cli rpc get_vulnerability_findings --pretty")
     if args.open_report:
         webbrowser.open(report_path.as_uri())
 
