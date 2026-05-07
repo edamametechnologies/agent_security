@@ -435,6 +435,19 @@ def write_incident_report(
       <p><b>EDAMAME:</b> is the front-line runtime layer: it catches what actually happened on the endpoint when a poisoned tool or weaker runner executed.</p>
     </div>
 
+    <h2>Hero Visual: The Brain Scan</h2>
+    <div class="card">
+      <p>Open <b>EDAMAME &gt; AI Assistant &gt; Agents &gt; Easy</b> (the Brain Scan). The orrery shows agent sources around the rim, processes orbiting each source, and forecast leaves around each process. Once the verifier has run:</p>
+      <ul>
+        <li>The header <b>Tracking %</b> badge drops out of the green band.</li>
+        <li><b>Outside</b> and <b>Forbidden</b> chips light up in the header strip.</li>
+        <li>A new node appears in the cursor sector for the rogue <code>curl</code>.</li>
+      </ul>
+      <p><b>Drill down:</b> click the rogue node and the side rail shows source / process / dimension / severity / session / evidence, plus operator actions (View session, View process, Mark process safe, Dismiss).</p>
+      <p><b>Rewind:</b> tap an earlier bar in the timeline river at the bottom of the Brain Scan to redraw the orrery to a calm tick. Click <b>Jump to live</b> to bring the rogue node back. This is the divergence story without reading any JSON.</p>
+      <p>Reserve <b>AI Assistant &gt; Agents &gt; Advanced</b> for a 5-10 second cutaway to show the raw verdict text, then return to Brain Scan.</p>
+    </div>
+
     <h2>Part 2: Front-Line Coverage Replay</h2>
     <div class="card">
       <p>The video should keep EDAMAME on screen and use one short replay to prove breadth. Recommended live replay: litellm-style PyPI credential harvesting. Optional extra proof: axios-style npm RAT beaconing, then mention the full replay suite.</p>
@@ -498,6 +511,14 @@ def main() -> int:
     report_path = runtime_root / "incident_report.html"
     write_incident_report(report_path, provider, verifier, evidence, workspace, curl_binary, demo_home, args)
     print(f"\nincident_report={report_path}")
+    print("\n== Hero Visual: The Brain Scan ==")
+    print("Open EDAMAME > AI Assistant > Agents > Easy.")
+    print("  - Tracking % badge should drop, Outside/Forbidden chips light up.")
+    print("  - Click the rogue curl node in the cursor sector.")
+    print("  - Read source / process / dimension / severity / evidence in the side rail.")
+    print("  - Hover the action row: View session, View process, Mark process safe, Dismiss.")
+    print("  - Tap an earlier bar in the timeline river to rewind to a clean tick, then Jump to live.")
+    print("Optional 5-10s cutaway: AI Assistant > Agents > Advanced for the raw verdict text.")
     print("\n== Part 2 Handoff: Front-Line Coverage Replay ==")
     print("Show EDAMAME AI Assistant > Security, then AI Assistant > History.")
     print("Recommended live replay:")
