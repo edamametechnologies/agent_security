@@ -50,6 +50,13 @@ DEFAULT_TARGET_HOST = "portquiz.net"
 DEFAULT_TARGET_PORT = 63169
 DEFAULT_PAYLOAD_BYTES = 4096
 
+# The "poisoned memory" file is the narrative artifact for the Palo Alto
+# Unit 42 scenario, NOT the file that drives detection. It used to be the
+# only sensitive-looking handle the trigger held open, which was too weak
+# a signal: the LLM adjudicator routinely cleared the resulting
+# `token_exfiltration` raw findings as "test marker only". Detection now
+# relies on a multi-credential set of opens (ssh + aws + kube + gnupg +
+# env) below; the memory file is kept as scenario context only.
 POISONED_MEMORY_CONTENT = """\
 # Agent Memory (POISONED)
 # This simulates a poisoned MEMORY.md where an indirect prompt injection
@@ -155,14 +162,39 @@ def main() -> int:
         state_dir,
     )
 
+    # Open at least three distinct credential categories so the
+    # vulnerability detector's `token_exfiltration` deterministic path
+    # accumulates enough corroborating sensitive-file labels for the LLM
+    # adjudicator to treat the finding as the canonical exfil shape
+    # rather than dismissing it as an isolated "test marker" file. Each
+    # path uses a name that the production sensitive-paths-db patterns
+    # actually classify as sensitive (ssh keys live under `/.ssh/` and
+    # match `/id_rsa`; aws under `/.aws/`; kube under `/.kube/`; gnupg
+    # under `/.gnupg/`; the dotenv variant matches `/.env`). Mirrors the
+    # multi-category open-set used by the credential_sprawl trigger.
     ssh_key = ensure_demo_sensitive_file(
-        Path(f"~/.ssh/{pfx}_memory_poison_key"),
-        f"{upfx}_MEMORY_POISONING_PAYLOAD\n",
+        Path(f"~/.ssh/{pfx}_memory_poison_id_rsa"),
+        f"-----BEGIN OPENSSH PRIVATE KEY-----\n{upfx}_MEMORY_POISONING_SSH\n-----END OPENSSH PRIVATE KEY-----\n",
         state_dir,
     )
     aws_cred = ensure_demo_sensitive_file(
         Path(f"~/.aws/{pfx}_memory_poison_credentials"),
         f"[default]\naws_access_key_id = AKIA{upfx}_MEM\naws_secret_access_key = {pfx}_memory_poison_secret\n",
+        state_dir,
+    )
+    kube_cfg = ensure_demo_sensitive_file(
+        Path(f"~/.kube/{pfx}_memory_poison_config"),
+        f"apiVersion: v1\nkind: Config\nusers:\n- name: {pfx}-memory-poison\n  user:\n    token: {pfx}_memory_poison_token\n",
+        state_dir,
+    )
+    gpg_key = ensure_demo_sensitive_file(
+        Path(f"~/.gnupg/{pfx}_memory_poison_secring.gpg"),
+        f"{upfx}_MEMORY_POISONING_GPG_PAYLOAD\n",
+        state_dir,
+    )
+    dotenv = ensure_demo_sensitive_file(
+        Path(f"~/.env_{pfx}_memory_poison"),
+        f"DATABASE_URL=postgres://{pfx}:secret@localhost/db\nAPI_KEY={pfx}_memory_poison_api_key\n",
         state_dir,
     )
 
@@ -172,7 +204,7 @@ def main() -> int:
     pid_file = state_dir / PID_FILE
     pid_file.write_text(f"{os.getpid()}\n", encoding="utf-8")
 
-    open_paths = [ssh_key, aws_cred, memory_file]
+    open_paths = [ssh_key, aws_cred, kube_cfg, gpg_key, dotenv, memory_file]
     psk_path = Path("~/.edamame_psk").expanduser()
     if psk_path.exists():
         open_paths.append(psk_path)
