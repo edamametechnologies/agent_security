@@ -1,4 +1,4 @@
-# Demo Guide -- Vulnerability Detection and Divergence Detection
+# Demo Guide -- Attack Pattern Detection and Divergence Detection
 
 Reproducible demos for EDAMAME's two detection planes. Each demo can be run
 independently or combined. All triggers are user-space, reversible, and
@@ -105,7 +105,7 @@ Before running any demo, verify the following inside the EDAMAME Security app:
 
 - [ ] **Traffic capture is ON** -- Go to the **System** tab and confirm
       traffic capture is running (sessions should be visible). Without
-      capture, the vulnerability detector has no network sessions to analyze.
+      capture, the attack pattern detector has no network sessions to analyze.
 
 - [ ] **LLM is configured** -- Go to **AI > AI Settings** and configure an
       LLM provider. Two options:
@@ -121,7 +121,7 @@ Before running any demo, verify the following inside the EDAMAME Security app:
       home **Overview** screen, activate either:
   - *AI Security Watchdog*: monitors and recommends (read-only analysis).
   - *AI Security Assistant*: monitors and auto-fixes safe issues.
-  - Either mode starts the vulnerability detection loop and the
+  - Either mode starts the attack pattern detection loop and the
     divergence engine. You can also enable these from the **AI >
     Security Agent** sub-tab.
 
@@ -167,7 +167,7 @@ edamame_cli rpc agentic_get_llm_config --pretty
 ```bash
 cd agent_security/tests/e2e
 
-# Vulnerability detection demo only
+# Attack pattern detection demo only
 bash run_demo.sh --focus vuln --skip-provision --auto-pair
 
 # Divergence detection demo only
@@ -181,27 +181,27 @@ Add `--dry-run` to preview commands without executing.
 
 ---
 
-## Vulnerability Detection Demo
+## Attack Pattern Detection Demo
 
 **What it tests:** EDAMAME's system-plane CVE and threat detection pipeline --
 blacklist matching, ML anomaly detection, token exfiltration, sandbox escape,
 credential harvest, supply chain compromise, and file integrity monitoring.
 
-**No behavioral model needed.** The vulnerability detector operates on live
+**No behavioral model needed.** The attack pattern detector operates on live
 network sessions and file events independently of the reasoning plane.
 
 ### Scenarios
 
-| Scenario | Attack pattern | Expected detection |
-|----------|---------------|-------------------|
-| `blacklist_comm` | TCP to known-bad FireHOL CIDRs | Blacklisted session + `skill_supply_chain` |
-| `cve_token_exfil` | Long-lived high-port egress with sensitive files open | `token_exfiltration` (CVE-2025-52882 / CVE-2026-25253) |
-| `cve_sandbox_escape` | Process spawned from `/tmp/` with network egress | `sandbox_exploitation` (CVE-2026-24763) |
-| `memory_poisoning` | Anomalous egress with credential file handles | `token_exfiltration` |
-| `credential_sprawl` | Multi-category credential access (SSH + AWS + cloud + crypto) | `credential_harvest` |
-| `supply_chain_exfil` | 9-category credential harvest + HTTP POST octet-stream | `credential_harvest` |
-| `npm_rat_beacon` | Base64 JSON beacon with legacy IE UA + npm credentials | `token_exfiltration` |
-| `file_events` | Sensitive file create/modify in FIM-watched directories | `file_system_tampering` |
+| Scenario | Real-world reference | Attack pattern | Expected detection |
+|----------|----------------------|---------------|-------------------|
+| `blacklist_comm` | [FireHOL IP blocklists](https://iplists.firehol.org/) and pgserve / CanisterSprawl IOC blocking in [StepSecurity's report](https://www.stepsecurity.io/blog/pgserve-compromised-on-npm-malicious-versions-harvest-credentials) | TCP to known-bad CIDRs / IOC destinations | Blacklisted session + `skill_supply_chain` |
+| `cve_token_exfil` | [CVE-2025-52882](https://nvd.nist.gov/vuln/detail/CVE-2025-52882) (Claude Code IDE extension unauthorized WebSocket connections) and [CVE-2026-25253](https://nvd.nist.gov/vuln/detail/CVE-2026-25253) (OpenClaw / Moltbot `gatewayUrl` WebSocket token leak) | Agent / IDE control path with sensitive files open and external egress | `token_exfiltration` |
+| `cve_sandbox_escape` | [CVE-2026-24763](https://nvd.nist.gov/vuln/detail/CVE-2026-24763) / [GHSA-mc68-q9jw-2h3v](https://github.com/openclaw/openclaw/security/advisories/GHSA-mc68-q9jw-2h3v) (OpenClaw Docker command injection via `PATH`) | Process spawned from a temporary path with network egress, modeling post-escape behavior | `sandbox_exploitation` |
+| `memory_poisoning` | Palo Alto Unit 42 on [persistent agent memory injection](https://unit42.paloaltonetworks.com/indirect-prompt-injection-poisons-ai-longterm-memory/) and [AgentCore sandbox / credential exposure](https://unit42.paloaltonetworks.com/bypass-of-aws-sandbox-network-isolation-mode/) | Anomalous egress with credential file handles | `token_exfiltration` |
+| `credential_sprawl` | OpenClaw [credential co-location issue #14411](https://github.com/openclaw/openclaw/issues/14411) and [AMOS-distributing OpenClaw skills](https://github.com/openclaw/clawhub/issues/571) | Multi-category credential access (SSH + AWS + cloud + crypto) | `credential_harvest` |
+| `supply_chain_exfil` | [litellm 1.82.7 / 1.82.8 PyPI compromise](https://github.com/BerriAI/litellm/issues/24518), [critical `litellm_init.pth` analysis](https://github.com/BerriAI/litellm/issues/24512), and [pgserve / CanisterSprawl](https://www.stepsecurity.io/blog/pgserve-compromised-on-npm-malicious-versions-harvest-credentials) | 9-category credential harvest + HTTP POST octet-stream | `credential_harvest` |
+| `npm_rat_beacon` | [axios 1.14.1 / 0.30.4 npm compromise](https://www.stepsecurity.io/blog/axios-compromised-on-npm-malicious-versions-drop-remote-access-trojan) via `plain-crypto-js` RAT dropper | Base64 JSON beacon with legacy IE UA + npm credentials | `token_exfiltration` |
+| `file_events` | [CVE-2025-30066](https://www.cisa.gov/news-events/alerts/2025/03/18/supply-chain-compromise-third-party-tj-actionschanged-files-cve-2025-30066-and-reviewdogaction) (`tj-actions/changed-files`) and worm-phase writes in pgserve / Shai-Hulud-style attacks | Sensitive file create/modify in FIM-watched directories | `file_system_tampering` |
 
 ### Run
 
@@ -278,10 +278,10 @@ divergence triggers fire.
 
 ### Scenarios
 
-| Scenario | Attack pattern | Expected detection |
-|----------|---------------|-------------------|
-| `divergence` | Sustained UDP egress to 15 undeclared public destinations | Divergence verdict: `DIVERGENCE` (unexplained_destinations > 5) |
-| `goal_drift` | Burst of connections to undeclared destinations | Divergence verdict: `DIVERGENCE` (burst > 5 unexplained) |
+| Scenario | Real-world reference | Attack pattern | Expected detection |
+|----------|----------------------|---------------|-------------------|
+| `divergence` | Behavioral analogue for prompt / tool drift effects; see Unit 42's [persistent agent memory injection](https://unit42.paloaltonetworks.com/indirect-prompt-injection-poisons-ai-longterm-memory/) | Sustained UDP egress to 15 undeclared public destinations | Divergence verdict: `DIVERGENCE` (unexplained_destinations > 5) |
+| `goal_drift` | Behavioral analogue for agent-to-agent trust drift; see Unit 42's [agent session smuggling](https://unit42.paloaltonetworks.com/agent-session-smuggling-in-agent2agent-systems/) | Burst of connections to undeclared destinations | Divergence verdict: `DIVERGENCE` (burst > 5 unexplained) |
 
 ### Run
 

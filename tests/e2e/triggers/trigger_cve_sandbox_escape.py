@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Trigger CVE-2026-24763 sandbox-exploitation detection.
+Trigger sandbox-exploitation detection for the CVE-2026-24763 behavior class.
 
 Compiles a small C binary under /tmp (or %TEMP% on Windows) and launches it.
 The binary generates sustained UDP egress.  The detector's sandbox heuristic
@@ -14,7 +14,11 @@ check looks for.
 Detection path:
   flodbadd L7 -> parent_process_path starts with /tmp/
   -> sandbox_exploitation finding
-  CVE reference: CVE-2026-24763
+
+Reference:
+  CVE-2026-24763 / GHSA-mc68-q9jw-2h3v: OpenClaw Docker command
+  injection via unsafe PATH handling. This trigger models the post-escape
+  runtime shape that EDAMAME detects: a temporary-path process with egress.
 
 Cross-platform: macOS and Linux (requires a C compiler).
 On Windows, uses a pure-Python /tmp-lineage fallback via subprocess.
@@ -134,8 +138,8 @@ int main(int argc, char **argv) {
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Trigger CVE-2026-24763 sandbox-exploitation detection by "
-                    "launching a network process from a /tmp parent path."
+        description="Trigger sandbox_exploitation behavior for CVE-2026-24763 "
+                    "by launching a network process from a /tmp parent path."
     )
     p.add_argument("--target-ip", default=DEFAULT_TARGET_IP)
     p.add_argument("--target-host", default=DEFAULT_TARGET_HOST)

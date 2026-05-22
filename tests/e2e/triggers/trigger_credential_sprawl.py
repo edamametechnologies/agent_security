@@ -2,9 +2,10 @@
 """
 Trigger multi-credential harvest + exfiltration detection.
 
-Real threat: OpenClaw issue #9627 (config secret sprawl) + VirusTotal
-AMOS infostealer pattern -- an agent or malicious skill accesses
-multiple credential stores simultaneously before exfiltrating data.
+Real threats: OpenClaw credential co-location / config-secret sprawl
+(tracked through issue #14411 and related #9627 context) plus AMOS-
+distributing OpenClaw skills. The common runtime shape is an agent or
+malicious skill accessing multiple credential stores before exfiltrating data.
 
 This script opens handles to five distinct credential categories
 (SSH, AWS, kube, GnuPG, .env) while streaming data to an undeclared
@@ -16,7 +17,9 @@ Detection path:
   L7 open_files contains multiple sensitive paths  ->  token_exfiltration
   sensitive-path labels: ssh + aws + kube + gnupg + env
 
-Reference: OpenClaw #9627 (config secret sprawl), VirusTotal AMOS analysis
+References:
+  OpenClaw #14411: credential broker / config-secret co-location
+  openclaw/clawhub #571: AMOS-distributing malicious OpenClaw skills
 
 Cross-platform: macOS, Linux, Windows.
 """
@@ -177,7 +180,7 @@ def main() -> int:
     for p in open_paths:
         print(f"  open_path={p}")
     print(f"  target={target_ip}:{args.target_port} host={args.target_host}")
-    print("  threat=OpenClaw #9627 (config secret sprawl) + AMOS infostealer")
+    print("  threat=OpenClaw credential sprawl (#14411/#9627) + AMOS skills (#571)")
     print("  detection=token_exfiltration with multi-category labels")
     print("  stop_with=Ctrl-C or python3 cleanup.py")
     sys.stdout.flush()

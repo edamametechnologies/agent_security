@@ -2,9 +2,11 @@
 """
 Trigger memory-poisoning detection: cross-session behavioral drift.
 
-Real threat: Palo Alto Unit 42 -- indirect prompt injection poisons
-long-term agent memory (MEMORY.md, SOUL.md, or equivalent), causing
-silent data exfiltration in subsequent sessions.
+Real threat class: Palo Alto Unit 42's persistent agent-memory injection
+research and AgentCore sandbox / credential-exposure research. EDAMAME
+does not detect prompt injection itself; this trigger models the host-side
+effect that follows: sensitive files open while the agent process makes
+unexplained egress.
 
 This script simulates the downstream effect:
   Phase 1: Write a "poisoned" memory file containing injected exfil
@@ -19,8 +21,9 @@ Detection path:
   L7 open_files contains sensitive path  ->  token_exfiltration finding
   divergence engine  ->  destination not in behavioral model
 
-Reference: Palo Alto Networks Unit 42,
-  "Indirect Prompt Injection Poisons AI Long-Term Memory" (2026)
+References:
+  Palo Alto Unit 42, "Indirect Prompt Injection Poisons AI Long-Term Memory"
+  Palo Alto Unit 42, "Cracks in the Bedrock: Escaping the AWS AgentCore Sandbox"
 
 Cross-platform: macOS, Linux, Windows.
 """
@@ -221,7 +224,7 @@ def main() -> int:
     for p in open_paths:
         print(f"  open_path={p}")
     print(f"  target={target_ip}:{args.target_port} host={args.target_host}")
-    print("  threat=Palo Alto Unit 42 memory poisoning")
+    print("  threat=Unit 42 memory injection + AgentCore credential-exposure class")
     print("  detection=token_exfiltration + divergence (undeclared destination)")
     print("  stop_with=Ctrl-C or python3 cleanup.py")
     sys.stdout.flush()

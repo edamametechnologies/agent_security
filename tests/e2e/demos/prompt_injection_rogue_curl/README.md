@@ -21,7 +21,7 @@ provider-prevention plus EDAMAME runtime-correlation story end to end:
 7. The script writes a self-contained HTML incident report.
 
 Part 2 of the recommended video then pivots to EDAMAME's broader
-vulnerability detector with safe replay triggers for 2026-style incidents:
+attack pattern detector with safe replay triggers for 2026-style incidents:
 
 - `trigger_supply_chain_exfil.py`: litellm 1.82.8 PyPI-style broad
   credential harvesting and exfiltration behavior.

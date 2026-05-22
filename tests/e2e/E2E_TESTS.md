@@ -43,20 +43,20 @@ classifies the resulting activity.
 
 Twelve scenarios, each in `triggers/trigger_<name>.py`:
 
-| Scenario | Trigger script | Threat model | Detection mechanism |
-|----------|---------------|--------------|---------------------|
-| `blacklist_comm` | `trigger_blacklist_comm.py` | Known-bad IP communication (FireHOL CIDRs) | Blacklist matching (FireHOL IP ranges) + skill_supply_chain if L7 |
-| `cve_token_exfil` | `trigger_cve_token_exfil.py` | CVE-2025-52882 / CVE-2026-25253 token exfil | token_exfiltration (anomalous session + sensitive open_files) |
-| `cve_sandbox_escape` | `trigger_cve_sandbox_escape.py` | CVE-2026-24763 sandbox escape | sandbox_exploitation (parent_process_path in /tmp/) |
-| `divergence` | `trigger_divergence.py` | Undeclared network destinations | Divergence engine (unexplained_destinations > 5) |
-| `memory_poisoning` | `trigger_memory_poisoning.py` | Palo Alto Unit 42 memory poisoning | token_exfiltration (anomalous session + sensitive open_files) |
-| `goal_drift` | `trigger_goal_drift.py` | Meta AI researcher incident (runaway agent) | Divergence engine (burst connections > 5 unexplained) |
-| `credential_sprawl` | `trigger_credential_sprawl.py` | OpenClaw #9627 + AMOS infostealer | token_exfiltration (multi-category credential labels) |
-| `supply_chain_exfil` | `trigger_supply_chain_exfil.py` | [litellm 1.82.8 PyPI compromise](https://github.com/BerriAI/litellm/issues/24512) (March 2026) | credential_harvest (9-category credential + crypto harvest + HTTP POST octet-stream exfil; anomaly-independent) |
-| `npm_rat_beacon` | `trigger_npm_rat_beacon.py` | axios 1.14.1/0.30.4 npm supply chain RAT (31 March 2026) | token_exfiltration (Base64 JSON beacon + legacy IE UA + npm credential open_files) |
-| `file_events` | `trigger_file_events.py` | CVE-2025-30066 file system tampering (tj-actions/changed-files) | file_system_tampering (FIM sensitive file create/modify + temp directory file creation) |
-| `temp_modify` | `trigger_temp_modify.py` | Two-phase staged-payload drop: benign placeholder in /tmp followed by malicious overwrite (originally catalogued as evasion scenario 3) | file_system_tampering via content-scan on FIM modify events (script_like / network_command_like heuristics) |
-| `nonsensitive_path` | `trigger_nonsensitive_path.py` | Credentials staged outside the sensitive-path database (~/workspace/, IDE caches) while exfiltrating over routine HTTPS (originally catalogued as evasion scenario 4) | sensitive_material_egress (live_open_files + secret_content_scan; anomaly-independent) |
+| Scenario | Trigger script | Real-world reference | Detection mechanism |
+|----------|---------------|----------------------|---------------------|
+| `blacklist_comm` | `trigger_blacklist_comm.py` | Known-bad destination communication using [FireHOL IP blocklists](https://iplists.firehol.org/); 2026 analogue: pgserve / CanisterSprawl exfil IOC blocking in [StepSecurity's report](https://www.stepsecurity.io/blog/pgserve-compromised-on-npm-malicious-versions-harvest-credentials) | Blacklist matching (FireHOL IP ranges) + skill_supply_chain if L7 |
+| `cve_token_exfil` | `trigger_cve_token_exfil.py` | [CVE-2025-52882](https://nvd.nist.gov/vuln/detail/CVE-2025-52882) (Claude Code IDE extension unauthorized WebSocket connections) and [CVE-2026-25253](https://nvd.nist.gov/vuln/detail/CVE-2026-25253) (OpenClaw / Moltbot `gatewayUrl` WebSocket token leak) | token_exfiltration (anomalous session + sensitive open_files) |
+| `cve_sandbox_escape` | `trigger_cve_sandbox_escape.py` | [CVE-2026-24763](https://nvd.nist.gov/vuln/detail/CVE-2026-24763) / [GHSA-mc68-q9jw-2h3v](https://github.com/openclaw/openclaw/security/advisories/GHSA-mc68-q9jw-2h3v) OpenClaw Docker command injection via `PATH`; trigger models post-escape process/network behavior | sandbox_exploitation (parent_process_path in /tmp/) |
+| `divergence` | `trigger_divergence.py` | Behavioral analogue for prompt / tool drift effects; see Unit 42 [persistent agent memory injection](https://unit42.paloaltonetworks.com/indirect-prompt-injection-poisons-ai-longterm-memory/) | Divergence engine (unexplained_destinations > 5) |
+| `memory_poisoning` | `trigger_memory_poisoning.py` | Palo Alto Unit 42 [persistent agent memory injection](https://unit42.paloaltonetworks.com/indirect-prompt-injection-poisons-ai-longterm-memory/) and [AgentCore sandbox / credential exposure](https://unit42.paloaltonetworks.com/bypass-of-aws-sandbox-network-isolation-mode/) research | token_exfiltration (anomalous session + sensitive open_files) |
+| `goal_drift` | `trigger_goal_drift.py` | Behavioral analogue for agent-to-agent trust drift; see Unit 42 [agent session smuggling](https://unit42.paloaltonetworks.com/agent-session-smuggling-in-agent2agent-systems/) | Divergence engine (burst connections > 5 unexplained) |
+| `credential_sprawl` | `trigger_credential_sprawl.py` | OpenClaw [credential co-location issue #14411](https://github.com/openclaw/openclaw/issues/14411) and [AMOS-distributing OpenClaw skills](https://github.com/openclaw/clawhub/issues/571) | credential_harvest / token_exfiltration depending on anomaly state (multi-category credential labels) |
+| `supply_chain_exfil` | `trigger_supply_chain_exfil.py` | [litellm 1.82.7 / 1.82.8 PyPI compromise](https://github.com/BerriAI/litellm/issues/24518), [critical `litellm_init.pth` analysis](https://github.com/BerriAI/litellm/issues/24512), and [pgserve / CanisterSprawl](https://www.stepsecurity.io/blog/pgserve-compromised-on-npm-malicious-versions-harvest-credentials) | credential_harvest (9-category credential + crypto harvest + HTTP POST octet-stream exfil; anomaly-independent) |
+| `npm_rat_beacon` | `trigger_npm_rat_beacon.py` | [axios 1.14.1 / 0.30.4 npm supply-chain RAT](https://www.stepsecurity.io/blog/axios-compromised-on-npm-malicious-versions-drop-remote-access-trojan) via `plain-crypto-js` | token_exfiltration (Base64 JSON beacon + legacy IE UA + npm credential open_files) |
+| `file_events` | `trigger_file_events.py` | [CVE-2025-30066](https://www.cisa.gov/news-events/alerts/2025/03/18/supply-chain-compromise-third-party-tj-actionschanged-files-cve-2025-30066-and-reviewdogaction) (`tj-actions/changed-files`) and worm-phase writes in pgserve / Shai-Hulud-style attacks | file_system_tampering (FIM sensitive file create/modify + temp directory file creation) |
+| `temp_modify` | `trigger_temp_modify.py` | Two-phase staged-payload drops seen across npm / PyPI supply-chain malware; retained as an evasion regression rather than a single CVE | file_system_tampering via content-scan on FIM modify events (script_like / network_command_like heuristics) |
+| `nonsensitive_path` | `trigger_nonsensitive_path.py` | Credential material staged outside standard secret paths, matching the broader 2026 supply-chain pattern of exfiltrating developer and CI credentials from non-obvious locations | sensitive_material_egress (live_open_files + secret_content_scan; anomaly-independent) |
 
 Adversarial evasion scenarios (iForest anomaly blind spots) are tracked separately
 in `edamame_core/tests/evasion/` rather than in the E2E CVE suite. Scenarios whose
@@ -87,7 +87,7 @@ bash tests/e2e/run_demo.sh \
   --scenario-duration 150 \
   --divergence-duration 90
 
-# Vulnerability detection demo only (no model seeding needed)
+# Attack pattern detection demo only (no model seeding needed)
 bash tests/e2e/run_demo.sh --focus vuln
 
 # Divergence detection demo only (seeds models + injects intent first)
@@ -127,7 +127,7 @@ bash tests/e2e/run_e2e_harness.sh \
 Key capabilities:
 - Runs intent and/or CVE suites in configurable rounds
 - **Fatal detection verification**: after each CVE trigger, the harness
-  forces a vulnerability detector tick and asserts the expected detection
+  forces a attack pattern detector tick and asserts the expected detection
   was produced. Missing detections cause a hard test failure (non-zero exit).
   Retry logic (5 attempts, 30s apart) accounts for L7 attribution timing
   (tuned against macOS but applied uniformly on Linux and Windows) and does
@@ -203,7 +203,7 @@ The scripts use `edamame_cli rpc <method>` to verify detection. Key methods:
 | `get_advisor` | none | Advisor state with `todo_list` |
 | `get_divergence_verdict` | none | Current divergence classification |
 | `get_behavioral_model` | none | Current merged behavioral model |
-| `get_vulnerability_findings` | none | Vulnerability detector findings |
+| `get_vulnerability_findings` | none | Attack pattern detector findings |
 | `get_file_events` | none | FIM snapshot with events, sensitive_events, monitoring status |
 | `get_file_monitor_status` | none | FIM watcher status (is_monitoring, watch_paths, event_count) |
 | `clear_file_events` | none | Clears all stored FIM events |

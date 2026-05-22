@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Trigger CVE-2025-52882 / CVE-2026-25253 token-exfiltration detection.
+Trigger the host-side token-exfiltration detector for two real agent CVEs.
 
 The Python process keeps sensitive credential files open while generating
 sustained high-port TCP egress to portquiz.net.  Because this process is
@@ -11,7 +11,10 @@ does NOT apply -- the process identity does not match any credential path.
 Detection path:
   flodbadd iForest  ->  session marked "anomalous" (long-lived high-port flow)
   L7 open_files contains sensitive path  ->  token_exfiltration finding
-  CVE reference: CVE-2025-52882 / CVE-2026-25253
+
+References:
+  CVE-2025-52882: Claude Code IDE extension missing WebSocket origin checks
+  CVE-2026-25253: OpenClaw / Moltbot gatewayUrl WebSocket token leak
 
 Cross-platform: macOS, Linux, Windows.
 """
@@ -46,8 +49,9 @@ KEEP_RUNNING = True
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Trigger CVE-2025-52882 / CVE-2026-25253 token-exfiltration "
-                    "by holding credential files open while streaming to a high port."
+        description="Trigger token_exfiltration behavior for CVE-2025-52882 "
+                    "and CVE-2026-25253 by holding credential files open "
+                    "while streaming to a high port."
     )
     p.add_argument("--target-host", default=DEFAULT_TARGET_HOST)
     p.add_argument("--target-ip", default="",
@@ -156,7 +160,8 @@ def main() -> int:
     for p in open_paths:
         print(f"  open_path={p}")
     print(f"  target={target_ip}:{args.target_port} host={args.target_host}")
-    print("  cve=CVE-2025-52882 / CVE-2026-25253")
+    print("  references=CVE-2025-52882 (Claude Code WS origin); "
+          "CVE-2026-25253 (OpenClaw gatewayUrl token leak)")
     print("  mode=python-tcp-stream")
     print("  stop_with=Ctrl-C or python3 cleanup.py")
     sys.stdout.flush()

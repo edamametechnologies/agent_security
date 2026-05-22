@@ -281,7 +281,7 @@ Then return to `Easy` (Brain Scan) for the next scene.
 
 Narration:
 
-> Vulnerability detection said what this looks like. The Brain Scan says why it is rogue for this specific task. The declared intent was package metadata review — no credential reads, no unexpected egress, no poisoned `curl`. The orrery shows it. A new node appeared in the cursor sector, the deny-list leaf in that branch lit up, and the tracking percentage collapsed.
+> Attack pattern detection said what this looks like. The Brain Scan says why it is rogue for this specific task. The declared intent was package metadata review — no credential reads, no unexpected egress, no poisoned `curl`. The orrery shows it. A new node appeared in the cursor sector, the deny-list leaf in that branch lit up, and the tracking percentage collapsed.
 >
 > Click the node and you see the source, the process, the dimension, the severity, the session, and the actions an operator can take.
 >
@@ -300,7 +300,7 @@ Camera direction:
 
 ## Scene 7: Broader Front-Line Coverage (Part 2 Begins)
 
-Part 2 hero surface is `AI Assistant` > `Security`. Stay out of the Brain Scan for this part: the trigger script is not paired with a behavioral model, so divergence is not the story here. The broad vulnerability detector is.
+Part 2 hero surface is `AI Assistant` > `Security`. Stay out of the Brain Scan for this part: the trigger script is not paired with a behavioral model, so divergence is not the story here. The broad attack pattern detector is.
 
 Visual:
 
@@ -559,7 +559,7 @@ Do not claim divergence catches every vulnerability.
 
 Say instead:
 
-> Divergence catches behavior that violates declared intent. The vulnerability detector catches broad malicious behavior even without an intent model.
+> Divergence catches behavior that violates declared intent. The attack pattern detector catches broad malicious behavior even without an intent model.
 
 Do not claim the Brain Scan is the only place a finding lives.
 

@@ -2,8 +2,10 @@
 """
 Trigger PyPI supply chain credential exfiltration detection.
 
-Real threat: litellm 1.82.8 PyPI compromise (March 2026) -- a malicious
-.pth file auto-executes on Python startup, harvests SSH keys, cloud
+Real threats: litellm 1.82.7 / 1.82.8 PyPI compromise (March 2026)
+and the same credential-harvest class seen in pgserve / CanisterSprawl.
+The 1.82.8 wheel added a malicious .pth file that auto-executes on
+Python startup and harvests SSH keys, cloud
 credentials (AWS, GCP, Azure), git tokens, Kubernetes configs, Docker
 configs, shell history, and crypto wallet data.  Collected secrets are
 AES-encrypted and exfiltrated via HTTP POST to an attacker-controlled
@@ -19,10 +21,13 @@ signal vs single-file token exfiltration.
 Detection path:
   flodbadd iForest  ->  session marked "anomalous" (HTTP POST to novel host)
   L7 open_files contains sensitive paths from 6+ categories
-    -> token_exfiltration finding (multi-label: ssh + aws + gcp + git + kube + vault)
+    -> credential_harvest finding (multi-label: ssh + aws + gcp + git + kube + vault)
   divergence engine  ->  undeclared destination not in behavioral model
 
-Reference: https://github.com/BerriAI/litellm/issues/24512
+References:
+  https://github.com/BerriAI/litellm/issues/24518
+  https://github.com/BerriAI/litellm/issues/24512
+  https://www.stepsecurity.io/blog/pgserve-compromised-on-npm-malicious-versions-harvest-credentials
 
 Cross-platform: macOS, Linux, Windows.
 """
@@ -230,9 +235,9 @@ def main() -> int:
     for p in open_paths:
         print(f"  open_path={p}")
     print(f"  target={target_ip}:{args.target_port} host={args.target_host}")
-    print("  threat=litellm 1.82.8 PyPI supply chain compromise (March 2026)")
-    print("  reference=https://github.com/BerriAI/litellm/issues/24512")
-    print("  detection=token_exfiltration with multi-label (9 categories) + divergence")
+    print("  threat=litellm 1.82.7/1.82.8 PyPI compromise + pgserve class")
+    print("  reference=https://github.com/BerriAI/litellm/issues/24518")
+    print("  detection=credential_harvest with multi-label (9 categories) + divergence")
     print("  mode=HTTP POST application/octet-stream (simulated encrypted exfil)")
     print("  stop_with=Ctrl-C or python3 cleanup.py")
     sys.stdout.flush()

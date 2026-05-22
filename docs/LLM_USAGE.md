@@ -19,7 +19,7 @@ artifact integrity checks remain the default for claim-bearing workflows.
 ## Test and Benchmark Paths
 
 - `tests/test_attack_detection.sh` (LLM-driven attack interpretation).
-- `tests/test_vulnerability_detection.sh` (mixed deterministic + LLM vulnerability-detection checks).
+- `tests/test_vulnerability_detection.sh` (mixed deterministic + LLM attack-pattern-detection checks).
 - `tests/benchmark/run_live_suite.py` (live trace-backed benchmark; all runs use
   skill-native reasoning over real EDAMAME telemetry).
 
