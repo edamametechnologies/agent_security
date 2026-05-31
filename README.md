@@ -25,7 +25,7 @@ scripts/
   readiness_gate.sh       # Publication readiness gate
 tests/
   e2e/
-    triggers/             # 11 CVE/divergence trigger scripts + cleanup
+    triggers/             # 13 CVE/divergence trigger scripts + cleanup
     run_demo.sh           # Demo orchestrator (--focus vuln|divergence|all)
     run_e2e_harness.sh    # Automated E2E harness for CI
     DEMO.md               # Step-by-step demo reproduction guide
