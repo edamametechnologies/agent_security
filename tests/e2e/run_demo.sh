@@ -93,8 +93,9 @@ Behavior:
      all:        Provision agent plugins, pair, seed models, inject intent,
                  run all scenarios (default).
   For divergence/all:
-  1. Refresh Cursor and Claude package installs from local repos.
-  2. Merge the rendered Cursor MCP snippet into ~/.cursor/mcp.json.
+  1. Refresh Cursor, Claude, and Hermes package installs from local repos.
+  2. Merge the rendered Cursor MCP snippet into ~/.cursor/mcp.json; the Hermes
+     install injects the EDAMAME stdio server into ~/.hermes/config.yaml.
   3. Sync the OpenClaw extension + skills into ~/.openclaw and enable the plugin.
   4. Reuse or request an app-issued EDAMAME MCP token via setup/pair.sh.
   For all modes:
@@ -268,6 +269,10 @@ CLAUDE_DESKTOP_CONFIG=""
 CURSOR_PSK=""
 CLAUDE_PSK=""
 CLAUDE_DESKTOP_PSK=""
+HERMES_HOME=""
+HERMES_INSTALL_ROOT=""
+HERMES_CONFIG=""
+HERMES_PSK=""
 
 # OpenClaw uses $HOME/.openclaw on every platform (both install.sh and pair.sh).
 OPENCLAW_HOME="${OPENCLAW_HOME:-$HOME/.openclaw}"
@@ -461,6 +466,7 @@ load_registry_context() {
   CLAUDE_REPO="$(resolve_agent_repo claude_code)"
   CLAUDE_DESKTOP_REPO="$(resolve_agent_repo claude_desktop)"
   OPENCLAW_REPO="$(resolve_agent_repo openclaw)"
+  HERMES_REPO="$(resolve_agent_repo hermes)"
 }
 
 # OS_KERNEL is set by detect_os_kernel() to one of: macos, linux, windows.
@@ -552,6 +558,12 @@ _set_paths_for_agent() {
       CLAUDE_DESKTOP_CONFIG="$config_json"
       CLAUDE_DESKTOP_PSK="$psk_path"
       ;;
+    hermes)
+      HERMES_HOME="$config_home"
+      HERMES_INSTALL_ROOT="$install_root"
+      HERMES_CONFIG="$config_json"
+      HERMES_PSK="$psk_path"
+      ;;
     *)
       die "_set_paths_for_agent: unexpected agent_type ${agent_type}"
       ;;
@@ -562,6 +574,7 @@ resolve_install_paths_for_all_agents() {
   _set_paths_for_agent cursor
   _set_paths_for_agent claude_code
   _set_paths_for_agent claude_desktop
+  _set_paths_for_agent hermes
 }
 
 cleanup_demo_state() {
@@ -665,6 +678,17 @@ install_claude_package() {
   fi
 }
 
+install_hermes_package() {
+  log "Refreshing Hermes package from local source"
+  # install.sh injects the EDAMAME stdio server into ~/.hermes/config.yaml
+  # (mcp_servers: edamame) itself, creating ~/.hermes when absent -- there is
+  # no host-side JSON merge as with Cursor.
+  run_cmd bash "$HERMES_REPO/setup/install.sh" "$WORKSPACE_ROOT"
+  if [[ -f "$OPENCLAW_PSK" ]]; then
+    sync_psk "$HERMES_PSK" || true
+  fi
+}
+
 install_openclaw_surface() {
   if ! have_command openclaw; then
     optional_failure "openclaw CLI not found; OpenClaw provisioning and agent prompts will be skipped"
@@ -760,6 +784,7 @@ sync_all_psks() {
   sync_psk "$CURSOR_PSK" || true
   sync_psk "$CLAUDE_PSK" || true
   sync_psk "$CLAUDE_DESKTOP_PSK" || true
+  sync_psk "$HERMES_PSK" || true
   sync_psk "$OPENCLAW_PAIRING_PSK" || true
 }
 
@@ -822,6 +847,16 @@ seed_claude_model() {
     || optional_failure "Claude package healthcheck failed"
 }
 
+seed_hermes_model() {
+  local install_root="$HERMES_INSTALL_ROOT"
+  [[ -d "$install_root" ]] || return 0
+  log "Hermes package: intent export and health check"
+  run_cmd node "$install_root/service/hermes_extrapolator.mjs" --config "$HERMES_CONFIG" --json \
+    || optional_failure "Hermes package extrapolator run failed"
+  run_cmd bash "$install_root/setup/healthcheck.sh" --json \
+    || optional_failure "Hermes package healthcheck failed"
+}
+
 run_intent_injection() {
   if [[ "$SKIP_INTENT" -eq 1 ]]; then
     return 0
@@ -880,6 +915,14 @@ run_claude_snapshot() {
   log "Claude package snapshot"
   run_cmd node "$install_root/service/verdict_reader.mjs" --config "$CLAUDE_CONFIG" --json \
     || optional_failure "Claude verdict reader failed"
+}
+
+run_hermes_snapshot() {
+  local install_root="$HERMES_INSTALL_ROOT"
+  [[ -d "$install_root" ]] || return 0
+  log "Hermes package snapshot"
+  run_cmd node "$install_root/service/verdict_reader.mjs" --config "$HERMES_CONFIG" --json \
+    || optional_failure "Hermes verdict reader failed"
 }
 
 run_claude_agent_prompt() {
@@ -1139,6 +1182,7 @@ baseline_round() {
 
   run_cursor_snapshot
   run_claude_snapshot
+  run_hermes_snapshot
   run_edamame_cli_snapshot
 }
 
@@ -1153,6 +1197,7 @@ seed_models_with_agent_activity() {
 
   seed_cursor_model
   seed_claude_model
+  seed_hermes_model
 }
 
 post_scenario_readout() {
@@ -1167,6 +1212,7 @@ post_scenario_readout() {
 
   run_cursor_snapshot
   run_claude_snapshot
+  run_hermes_snapshot
   run_edamame_cli_snapshot
 }
 
@@ -1240,6 +1286,7 @@ Key local assets refreshed:
   Cursor config:   $CURSOR_CONFIG
   Cursor MCP file: $CURSOR_MCP_TARGET
   Claude config:   $CLAUDE_CONFIG
+  Hermes config:   $HERMES_CONFIG
   OpenClaw token:  $OPENCLAW_PSK
 
 Recommended follow-up:
@@ -1263,6 +1310,7 @@ main() {
     if [[ "$SKIP_PROVISION" -eq 0 ]]; then
       install_cursor_package
       install_claude_package
+      install_hermes_package
       install_openclaw_surface
     else
       warn "Skipping provisioning by request"

@@ -114,6 +114,30 @@ consistency with Cursor and simpler deployment.
 Same opt-in `--background-refresh` fallback is available but not active by
 default.
 
+### Newer workstation agents (Codex, Hermes): same trigger, different source
+
+The MCP tool-call piggyback pattern generalizes to the newer workstation
+packages, which reuse the Cursor/Claude Code trigger and `BehavioralWindow`
+contract verbatim -- only the transcript *source* differs:
+
+- **Codex** (`edamame_codex`, `agent_type` `codex`): reads Codex CLI
+  transcripts under `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (or
+  `$CODEX_HOME/sessions`). Otherwise identical to Cursor's file walk.
+- **Hermes** (`edamame_hermes`, `agent_type` `hermes`): Nous Research's
+  OpenClaw successor stores session history in a SQLite+FTS5 database under
+  `~/.hermes` alongside a `sessions.json` manifest (and, in some builds,
+  per-session JSON/JSONL/`.txt` files under `~/.hermes/sessions/`). The
+  extrapolator reads the transcript files and manifest, plus the SQLite
+  store when the optional `better-sqlite3` native module is present.
+  Because the extrapolator runs where Hermes runs and posts to EDAMAME's
+  MCP endpoint over the network, this path is also what covers **off-host**
+  Hermes (Docker/SSH/Modal/Daytona) that the host-side observer cannot see.
+
+Both agents are additionally covered by EDAMAME's host-side external
+transcript observer for discovered on-disk installs; for Hermes the observer
+ingests only the files and `sessions.json` manifest (foundation links no
+SQLite driver), so full SQLite ingestion remains the Node extrapolator's job.
+
 ## Why the Approaches Differ
 
 The trigger mechanism is dictated by what each platform exposes:
@@ -142,7 +166,7 @@ transcript forwarding) or `upsert_behavioral_model` (prebuilt predictions).
 
 Required fields on every slice:
 
-- `agent_type`: `openclaw`, `cursor`, or `claude_code`
+- `agent_type`: e.g. `openclaw`, `cursor`, `claude_code`, `codex`, or `hermes` (free-form)
 - `agent_instance_id`: stable per deployment/workstation/workspace
 - `window_start` / `window_end`: ISO-8601 observation window
 - `predictions[]`: expected traffic, processes, files, ports, protocols

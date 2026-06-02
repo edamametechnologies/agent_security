@@ -47,6 +47,7 @@ _MCP_SNIPPET_NAME = {
     "cursor": "cursor-mcp.json",
     "claude_code": "claude-code-mcp.json",
     "claude_desktop": "claude-desktop-mcp.json",
+    "hermes": "hermes-mcp.json",
 }
 
 

@@ -152,6 +152,43 @@
       "registry_icon_relpath": "codex/icon.svg"
     },
     {
+      "agent_type": "hermes",
+      "display_name": "EDAMAME for Hermes",
+      "description": "Hermes Agent workstation integration with transcript ingest, pairing, verdicts, and health checks.",
+      "repo_name": "edamame_hermes",
+      "strategy_kind": "workstation_stdio_mcp",
+      "sort_order": 37,
+      "requires_workspace_arg": false,
+      "repo_scripts": {
+        "install_unix": "setup/install.sh",
+        "install_windows": "setup/install.ps1",
+        "uninstall_unix": "setup/uninstall.sh",
+        "uninstall_windows": "setup/uninstall.ps1",
+        "healthcheck_relpath": "service/healthcheck_cli.mjs"
+      },
+      "install_layout": {
+        "install_base": "data_dir",
+        "install_relative_path": "hermes-edamame/current",
+        "config_kind": "platform_config_slug",
+        "config_slug": "hermes-edamame",
+        "state_kind": "platform_state_slug",
+        "state_slug": "hermes-edamame",
+        "bundle_icon_relpath": "assets/plugin_hermes.png"
+      },
+      "mcp": {
+        "server_key": "edamame",
+        "config_targets": [
+          "hermes_config_yaml"
+        ]
+      },
+      "e2e": {
+        "repo_env_var": "HERMES_REPO",
+        "intent_script": "tests/e2e_inject_intent.sh",
+        "intent_timeout_seconds": 900
+      },
+      "registry_icon_relpath": "hermes/icon.svg"
+    },
+    {
       "agent_type": "openclaw",
       "display_name": "EDAMAME for OpenClaw",
       "description": "OpenClaw plugin bundle with skills, health checks, and local plugin enablement.",

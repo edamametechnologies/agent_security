@@ -155,6 +155,7 @@ After regeneration, `artifacts/paper-bundle/` contains:
 | [edamame_openclaw](https://github.com/edamametechnologies/edamame_openclaw) | OpenClaw agent integration package |
 | [edamame_cursor](https://github.com/edamametechnologies/edamame_cursor) | Cursor developer workstation package |
 | [edamame_claude_code](https://github.com/edamametechnologies/edamame_claude_code) | Claude Code developer workstation plugin |
+| [edamame_hermes](https://github.com/edamametechnologies/edamame_hermes) | Hermes Agent developer workstation package |
 | [edamame_security](https://github.com/edamametechnologies/edamame_security) | EDAMAME Security desktop/mobile app -- see [AGENTIC.md](https://github.com/edamametechnologies/edamame_security/blob/main/AGENTIC.md) for CVE detection, divergence, and E2E test details |
 | [edamame_posture](https://github.com/edamametechnologies/edamame_posture) | EDAMAME Posture CLI for CI/CD and servers |
 | [edamame_core_api](https://github.com/edamametechnologies/edamame_core_api) | EDAMAME Core public API documentation |
@@ -171,3 +172,4 @@ See the full [EDAMAME Technologies](https://github.com/edamametechnologies) orga
   ```
 - **edamame_cursor** (Cursor): See [edamame_cursor README](https://github.com/edamametechnologies/edamame_cursor) for Cursor Marketplace or manual install (pending marketplace publication).
 - **edamame_openclaw** (OpenClaw): See [edamame_openclaw README](https://github.com/edamametechnologies/edamame_openclaw) for plugin bundle and Lima VM provisioning.
+- **edamame_hermes** (Hermes): See [edamame_hermes README](https://github.com/edamametechnologies/edamame_hermes) for install instructions and MCP configuration.

@@ -6,7 +6,7 @@
 End-to-end test infrastructure for validating EDAMAME's two-plane security
 model across the supported agent integration packages declared in
 `agent_security/supported_agents/index.json`. The current registry includes
-OpenClaw, Cursor, Claude Code, and Claude Desktop.
+OpenClaw, Cursor, Claude Code, Claude Desktop, Codex, and Hermes.
 
 All E2E tests live in this directory (`agent_security/tests/e2e/`).
 Trigger scripts are parameterized with `--agent-type` so one canonical
@@ -33,6 +33,8 @@ harness discovers these entries from the supported-agent registry at runtime:
 | `tests/e2e_inject_intent.sh` | [edamame_claude_code](https://github.com/edamametechnologies/edamame_claude_code) | Generates three synthetic Claude Code transcripts (API / shell / git), runs extrapolator, polls model |
 | `tests/e2e_inject_intent.sh` | [edamame_claude_desktop](https://github.com/edamametechnologies/edamame_claude_desktop) | Generates synthetic Claude Desktop transcripts, runs extrapolator, polls model |
 | `tests/e2e_inject_intent.sh` | [edamame_cursor](https://github.com/edamametechnologies/edamame_cursor) | Generates synthetic Cursor-format JSONL transcripts, runs `cursor_extrapolator`, polls model |
+| `tests/e2e_inject_intent.sh` | [edamame_codex](https://github.com/edamametechnologies/edamame_codex) | Generates synthetic Codex CLI transcripts, runs extrapolator, polls model |
+| `tests/e2e_inject_intent.sh` | [edamame_hermes](https://github.com/edamametechnologies/edamame_hermes) | Generates synthetic Hermes transcripts (`.txt`), runs `hermes_extrapolator`, polls model |
 
 ### 2. CVE / Divergence E2E (`--focus cve`)
 
@@ -103,7 +105,7 @@ The `--focus` flag selects which demo category to run:
 | `all` | Both (default) | Seeds behavioral models + injects intent |
 
 Key capabilities:
-- Provisions Cursor, Claude Code, and OpenClaw packages from local source
+- Provisions Cursor, Claude Code, Hermes, and OpenClaw packages from local source
 - Seeds behavioral models via agent CLIs and package extrapolators (divergence / all modes)
 - Captures `edamame_cli` baseline before each scenario (blacklisted, anomalous,
   active threats, advisor todos, divergence verdict)
@@ -159,7 +161,7 @@ duplicating agent lists in bash.
 All triggers accept `--agent-type <supported-agent-type>` (default:
 `openclaw`, or read from `EDAMAME_AGENT_TYPE` env var). The registry-backed
 harnesses currently validate against `openclaw`, `cursor`, `claude_code`,
-`claude_desktop`, and `codex`. This determines:
+`claude_desktop`, `codex`, and `hermes`. This determines:
 
 - **STATE_DIR**: `/tmp/edamame_{agent_type}_demo`
 - **File prefix**: `demo_{agent_type}_` (for `~/.ssh/`, `~/.aws/`, etc.)
@@ -238,6 +240,8 @@ Intent injection scripts (one per agent repo):
   edamame_claude_code/tests/e2e_inject_intent.sh
   edamame_claude_desktop/tests/e2e_inject_intent.sh
   edamame_cursor/tests/e2e_inject_intent.sh
+  edamame_codex/tests/e2e_inject_intent.sh
+  edamame_hermes/tests/e2e_inject_intent.sh
 
 Registry source of truth:
   supported_agents/index.json
