@@ -26,8 +26,7 @@ verify EDAMAME state. Install it before running any demo.
 **macOS (Homebrew -- recommended):**
 
 ```bash
-brew tap edamametechnologies/tap
-brew install edamame-cli
+brew install edamametechnologies/tap/edamame-cli
 ```
 
 **macOS (manual binary):**
