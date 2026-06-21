@@ -1,0 +1,249 @@
+name: Agent fleet monitoring E2E
+
+# Consolidated, multi-platform proof that EDAMAME monitors the whole
+# supported agent fleet (Cursor, Claude Code, Claude Desktop, Codex,
+# Hermes, OpenClaw). On each of macOS / Windows / Linux it:
+#   1. installs every plugin from its checked-out repo,
+#   2. bootstraps activity via each plugin's intent injector,
+#   3. verifies EDAMAME's host-side transcript observer DISCOVERS each agent,
+#   4. verifies pausing an agent's observer raises its unsecured_<agent> threat,
+#   5. drives a divergence scenario to a DIVERGENCE verdict, and
+#   6. asserts the host blast-radius surface.
+#
+# This is a standalone signal workflow -- it is NOT wired into the release
+# security gate. Per-agent install/detection/unsecured and the fleet-wide
+# divergence/blast-radius legs are hard failures; the LLM-backed intent push
+# is best-effort (warn only). All cross-agent orchestration lives in
+# tests/e2e/run_fleet_monitoring.py.
+
+on:
+  push:
+    branches: [ dev, main ]
+    paths:
+      - 'tests/e2e/run_fleet_monitoring.py'
+      - 'tests/e2e/supported_agents.py'
+      - 'tests/e2e/triggers/**'
+      - 'supported_agents/index.json'
+      - '.github/workflows/agent_monitoring_e2e.yml'
+  pull_request:
+    paths:
+      - 'tests/e2e/run_fleet_monitoring.py'
+      - 'tests/e2e/supported_agents.py'
+      - 'tests/e2e/triggers/**'
+      - 'supported_agents/index.json'
+      - '.github/workflows/agent_monitoring_e2e.yml'
+  workflow_dispatch:
+    inputs:
+      agents:
+        description: 'CSV of agent_types to run (empty = all in registry)'
+        required: false
+        default: ''
+      representative_agent:
+        description: 'Agent type used for the divergence leg'
+        required: false
+        default: 'openclaw'
+      skip_divergence:
+        description: 'Skip the divergence leg'
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  fleet:
+    name: Fleet monitoring (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      # ── Checkout agent_security + all six plugin repos as siblings ─────
+      - name: Checkout agent_security
+        uses: actions/checkout@v4
+        with:
+          path: agent_security
+
+      - name: Checkout edamame_cursor
+        uses: actions/checkout@v4
+        with:
+          repository: edamametechnologies/edamame_cursor
+          path: edamame_cursor
+
+      - name: Checkout edamame_claude_code
+        uses: actions/checkout@v4
+        with:
+          repository: edamametechnologies/edamame_claude_code
+          path: edamame_claude_code
+
+      - name: Checkout edamame_claude_desktop
+        uses: actions/checkout@v4
+        with:
+          repository: edamametechnologies/edamame_claude_desktop
+          path: edamame_claude_desktop
+
+      - name: Checkout edamame_codex
+        uses: actions/checkout@v4
+        with:
+          repository: edamametechnologies/edamame_codex
+          path: edamame_codex
+
+      - name: Checkout edamame_hermes
+        uses: actions/checkout@v4
+        with:
+          repository: edamametechnologies/edamame_hermes
+          path: edamame_hermes
+
+      - name: Checkout edamame_openclaw
+        uses: actions/checkout@v4
+        with:
+          repository: edamametechnologies/edamame_openclaw
+          path: edamame_openclaw
+
+      # ── EDAMAME Posture daemon (disconnected + packet capture) ─────────
+      - name: Setup EDAMAME Posture
+        uses: edamametechnologies/edamame_posture_action@v1
+        with:
+          disconnected_mode: true
+          packet_capture: true
+          checkout: false
+        env:
+          EDAMAME_LLM_API_KEY: ${{ secrets.EDAMAME_LLM_API_KEY }}
+
+      - name: Set EDAMAME_POSTURE env var
+        shell: bash
+        run: echo "EDAMAME_POSTURE=$EDAMAME_BINARY_PATH" >> "$GITHUB_ENV"
+
+      # ── Toolchains ─────────────────────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install C compiler (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          /c/msys64/usr/bin/pacman.exe -S --noconfirm mingw-w64-x86_64-gcc
+          echo "C:\msys64\mingw64\bin" >> "$GITHUB_PATH"
+          /c/msys64/mingw64/bin/gcc.exe --version
+          echo "CC=C:\msys64\mingw64\bin\gcc.exe" >> "$GITHUB_ENV"
+
+      # ── PSK + MCP server (intent push target) ──────────────────────────
+      - name: Generate PSK and start MCP server
+        shell: bash
+        run: |
+          PSK=$("$EDAMAME_POSTURE" mcp-generate-psk 2>&1 | head -n1) || true
+          if [ -z "$PSK" ] || [ ${#PSK} -lt 32 ]; then
+            PSK=$(sudo "$EDAMAME_POSTURE" mcp-generate-psk 2>&1 | head -n1) || true
+          fi
+          if [ -z "$PSK" ] || [ ${#PSK} -lt 32 ]; then
+            echo "FAIL: could not generate PSK (got: '$PSK')"
+            exit 1
+          fi
+          echo "::add-mask::$PSK"
+          echo "EDAMAME_PSK=$PSK" >> "$GITHUB_ENV"
+          echo "PSK generated (${#PSK} chars)"
+
+          echo "--- Starting MCP server with PSK ---"
+          MCP_CMD="$EDAMAME_POSTURE"
+          if [ "$RUNNER_OS" != "Windows" ]; then
+            MCP_CMD="sudo $EDAMAME_POSTURE"
+          fi
+          for attempt in 1 2 3 4 5; do
+            $MCP_CMD mcp-stop 2>/dev/null || true
+            sleep 3
+            if $MCP_CMD mcp-start 3000 "$PSK" 2>&1; then
+              echo "MCP server started on port 3000"
+              break
+            fi
+            echo "MCP start attempt $attempt/5 failed, retrying..."
+            if [ "$attempt" -eq 5 ]; then
+              echo "FAIL: could not start MCP server after 5 attempts"
+              exit 1
+            fi
+          done
+
+      - name: Install edamame_cli
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            curl --proto '=https' --tlsv1.2 -sSf \
+              https://raw.githubusercontent.com/edamametechnologies/edamame_cli/main/install.sh \
+              | sh -s --
+            EC=$(command -v edamame_cli.exe 2>/dev/null || command -v edamame_cli 2>/dev/null || echo "$HOME/edamame_cli.exe")
+          else
+            curl --proto '=https' --tlsv1.2 -sSf \
+              https://raw.githubusercontent.com/edamametechnologies/edamame_cli/main/install.sh \
+              | sudo -E sh -s --
+            EC=$(command -v edamame_cli 2>/dev/null || echo /usr/local/bin/edamame_cli)
+          fi
+          echo "EDAMAME_CLI=$EC" >> "$GITHUB_ENV"
+          "$EC" --version
+
+      # ── Drive the whole fleet ──────────────────────────────────────────
+      - name: Run fleet monitoring driver
+        timeout-minutes: 40
+        shell: bash
+        working-directory: agent_security
+        env:
+          EDAMAME_CLI: ${{ env.EDAMAME_CLI }}
+          EDAMAME_MCP_PSK: ${{ env.EDAMAME_PSK }}
+          EDAMAME_LLM_API_KEY: ${{ secrets.EDAMAME_LLM_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          CURSOR_REPO: ${{ github.workspace }}/edamame_cursor
+          CLAUDE_REPO: ${{ github.workspace }}/edamame_claude_code
+          CLAUDE_DESKTOP_REPO: ${{ github.workspace }}/edamame_claude_desktop
+          CODEX_REPO: ${{ github.workspace }}/edamame_codex
+          HERMES_REPO: ${{ github.workspace }}/edamame_hermes
+          OPENCLAW_REPO: ${{ github.workspace }}/edamame_openclaw
+          FLEET_REPRESENTATIVE: ${{ github.event.inputs.representative_agent || 'openclaw' }}
+          FLEET_SKIP_DIVERGENCE: ${{ (github.event.inputs.skip_divergence == 'true') && '1' || '' }}
+          EDAMAME_AGENTS: ${{ github.event.inputs.agents || '' }}
+        run: |
+          PY=python3
+          command -v python3 >/dev/null 2>&1 || PY=python
+          "$PY" tests/e2e/run_fleet_monitoring.py
+
+      # ── Teardown ───────────────────────────────────────────────────────
+      - name: Stop daemon
+        if: always()
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            "$EDAMAME_POSTURE" stop 2>/dev/null || true
+          else
+            sudo "$EDAMAME_POSTURE" stop 2>/dev/null || true
+          fi
+          echo "Daemon stopped"
+
+      # ── Slack alert ────────────────────────────────────────────────────
+      - name: Slack alert on failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.26.0
+        with:
+          channel-id: "C072J0U9TH7"
+          slack-message: |
+            *agent_security fleet monitoring E2E failed*
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref }}
+            OS: ${{ matrix.os }}
+            Run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        continue-on-error: true

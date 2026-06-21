@@ -14,7 +14,7 @@ copy covers all supported agent platforms. The `supported_agents.py` helper
 resolves repo paths, validates repo-local lifecycle scripts, and drives the
 registry-backed harnesses.
 
-## Two Test Suites
+## Three Test Suites
 
 ### 1. Intent E2E (`--focus intent`)
 
@@ -67,6 +67,68 @@ MCPTox-style downstream effects) belong there because their pass/fail on CI is n
 deterministic. Scenarios whose deterministic detection path has been closed (temp
 modify content-scan, non-sensitive-path live open-file scan) graduate here as
 regression tests. See `edamame_core/ADVERSARIAL.md` (BS-8) for the current catalog.
+
+### 3. Fleet Monitoring E2E (`run_fleet_monitoring.py`)
+
+Tests the **whole-fleet host-side observation** pipeline in one pass: every
+agent in the registry is installed from its checked-out repo, bootstrapped,
+and verified to be DISCOVERED by EDAMAME's host-side transcript observer
+(Level 1 monitoring), then the fleet-wide divergence and host-blast-radius
+surfaces are asserted. This is the multi-agent, multi-platform counterpart to
+each plugin repo's own `tests/e2e_inject_intent.sh` + per-repo `test_e2e.yml`:
+it reuses the proven install -> pair PSK -> intent -> observer probe ->
+divergence verdict recipe in a registry-driven loop and adds the net-new
+`get_host_blast_radius` assertion.
+
+Unlike the per-repo `test_e2e.yml` (which validates one plugin at a time), the
+fleet driver answers the operator question *"on this OS, does EDAMAME see
+every agent we ship, raise an `unsecured_<agent>` threat when an observer is
+paused, catch a divergence, and report the blast radius?"* in a single job.
+
+| Leg | Scope | Severity | What it asserts |
+|-----|-------|----------|-----------------|
+| install | per-agent | HARD | the plugin installs from its repo via `repo_scripts.install_{unix,windows}` |
+| intent | per-agent | SOFT | the LLM-backed behavioral-model push (`e2e_inject_intent.sh`); warn-only because it depends on a live LLM, but it also writes the native transcripts that drive discovery |
+| observer detection | per-agent | HARD | `run_transcript_observer_tick_for` -> the agent becomes `discovered` |
+| unsecured toggle | per-agent | HARD | `set_transcript_observer_enabled(false)` raises `unsecured_<agent>`; re-enabling clears it |
+| divergence verdict | fleet-wide | HARD | seed a behavioral model + run `trigger_divergence.py` -> `get_divergence_verdict` returns `DIVERGENCE` with a `correlation:not_expected` evidence category |
+| host blast radius | fleet-wide | HARD | `get_host_blast_radius` returns `host_privilege.assessed=true`, a non-empty `agent_sandboxes` list, and list-typed `blast_radius_agents` / `harnesses` |
+
+HARD failures make the driver exit non-zero; SOFT failures only warn. The
+driver loops over every agent before reporting, so one CI run surfaces all
+per-agent failures at once. The intent leg is SOFT by design: the critical
+discovery signal (native transcript files under the agent's transcript root)
+is written early in `e2e_inject_intent.sh` even when the later LLM
+extrapolation step fails, and `verify_detection` additionally seeds the
+observer's own advertised transcript root as a registry-free fallback if the
+agent is still not discovered.
+
+Local invocation (against a running EDAMAME core, detection-only):
+
+```bash
+EDAMAME_CLI=../edamame_cli/target/release/edamame_cli \
+  python3 tests/e2e/run_fleet_monitoring.py \
+    --skip-install --skip-divergence --agents openclaw,cursor
+```
+
+Full local run (installs plugins, runs intent, divergence, blast radius):
+
+```bash
+EDAMAME_CLI=../edamame_cli/target/release/edamame_cli \
+EDAMAME_MCP_PSK="$(cat ~/.openclaw/edamame-openclaw/state/edamame-mcp.psk)" \
+CURSOR_REPO=../edamame_cursor OPENCLAW_REPO=../edamame_openclaw \
+  python3 tests/e2e/run_fleet_monitoring.py --representative-agent openclaw
+```
+
+| Flag / env var | Purpose |
+|----------------|---------|
+| `--agents` / `EDAMAME_AGENTS` | CSV of agent_types to run (default: all in registry) |
+| `--representative-agent` / `FLEET_REPRESENTATIVE` | agent used for the single divergence leg (default `openclaw`) |
+| `--skip-divergence` / `FLEET_SKIP_DIVERGENCE=1` | skip the divergence leg |
+| `--skip-blast-radius` / `FLEET_SKIP_BLAST_RADIUS=1` | skip the blast-radius leg |
+| `--skip-install` | detection-only (skip install + intent); for local dev against an already-provisioned fleet |
+| `EDAMAME_MCP_PSK` | daemon MCP PSK, written into each agent's PSK file before the intent push |
+| `<AGENT>_REPO` (e.g. `CURSOR_REPO`) | per-agent repo override consumed by `supported_agents.py` |
 
 ## Orchestration Scripts
 
@@ -141,6 +203,51 @@ Key capabilities:
 - Structured reporting: `report.jsonl` (one JSON object per round) and
   `SUMMARY.md` rollup
 
+### `run_fleet_monitoring.py`
+
+Consolidated fleet-monitoring driver (suite 3 above). Registry-driven loop
+that installs, bootstraps, and observer-verifies every supported agent, then
+asserts the fleet-wide divergence and blast-radius surfaces. Designed to run
+both locally (against a developer's running core) and unattended in CI. See
+the Fleet Monitoring E2E suite section for flags and severity levels.
+
+## CI Workflow: `agent_monitoring_e2e.yml`
+
+`.github/workflows/agent_monitoring_e2e.yml` runs `run_fleet_monitoring.py`
+on the **three desktop platforms** (`ubuntu-latest`, `macos-latest`,
+`windows-latest`) as a standalone signal workflow. It is intentionally NOT
+wired into the release security gate -- it is a fleet-health proof, separate
+from the CVE detection gate owned by `edamame_posture/tests.yml`.
+
+Per-OS job shape (mirrors the proven per-repo `test_e2e.yml`):
+
+1. **Checkout** `agent_security` plus all six plugin repos
+   (`edamame_cursor`, `edamame_claude_code`, `edamame_claude_desktop`,
+   `edamame_codex`, `edamame_hermes`, `edamame_openclaw`) as siblings in the
+   workspace. All six are public, and `actions/checkout` uses `GITHUB_TOKEN`,
+   so the org IP allow list does not apply.
+2. **Setup EDAMAME Posture** (`edamame_posture_action@v1`) in
+   `disconnected_mode` with `packet_capture`, `checkout: false` (the driver
+   does its own multi-repo checkout). The daemon binary path is exported as
+   `EDAMAME_POSTURE` from `EDAMAME_BINARY_PATH`.
+3. **Toolchains**: Node.js 22, Python 3.12, and on Windows a mingw-w64 gcc
+   (some plugin extrapolators pull `better-sqlite3` / native deps).
+4. **PSK + MCP server**: generate a PSK via `mcp-generate-psk`, start the MCP
+   server on port 3000, and pass the PSK to the driver as `EDAMAME_MCP_PSK`
+   so each agent's intent push can reach the MCP endpoint.
+5. **Install `edamame_cli`** from `raw.githubusercontent.com` (same recipe as
+   every other workflow), export `EDAMAME_CLI`.
+6. **Run the driver** with a 40-minute timeout; each `<AGENT>_REPO` env var
+   points at the checked-out sibling repo, and the Portal LLM key
+   (`EDAMAME_LLM_API_KEY`) plus `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` are
+   forwarded for the intent legs.
+7. **Teardown + Slack alert** on failure (channel `C072J0U9TH7`).
+
+`workflow_dispatch` inputs allow restricting the run to a CSV of `agents`,
+choosing the `representative_agent` for the divergence leg, or
+`skip_divergence`. Triggers on push/PR to `dev`/`main` are path-filtered to
+the driver, registry, triggers, and the workflow file itself.
+
 ## Supported-Agent Registry
 
 `agent_security/supported_agents/index.json` is the source of truth for:
@@ -209,6 +316,10 @@ The scripts use `edamame_cli rpc <method>` to verify detection. Key methods:
 | `get_file_events` | none | FIM snapshot with events, sensitive_events, monitoring status |
 | `get_file_monitor_status` | none | FIM watcher status (is_monitoring, watch_paths, event_count) |
 | `clear_file_events` | none | Clears all stored FIM events |
+| `get_transcript_observer_status` | none | Host-side observer status (`agents[]` with `discovered`, `last_session_count`, `last_transcripts_roots`) |
+| `run_transcript_observer_tick_for` | `{"agent_type": "..."}` | Forces a single-agent observer tick; returns that agent's fresh status row |
+| `set_transcript_observer_enabled` | `{"agent_type": "...", "enabled": bool}` | Pauses/resumes one agent's observer (pausing raises `unsecured_<agent>`) |
+| `get_host_blast_radius` | none | Host privilege + per-agent sandbox confinement + governance harness surface |
 
 ## Directory Layout
 
@@ -231,9 +342,13 @@ tests/e2e/
     cleanup.py
   run_demo.sh                      # Full demo orchestrator
   run_e2e_harness.sh               # Automated E2E harness
+  run_fleet_monitoring.py          # Consolidated fleet-monitoring driver (suite 3)
   supported_agents.py              # Registry helper for repo/path resolution
   E2E_TESTS.md                     # This document (architecture reference)
   DEMO.md                          # Step-by-step demo reproduction guide
+
+CI workflow:
+  .github/workflows/agent_monitoring_e2e.yml   # 3-platform fleet-monitoring job
 
 Intent injection scripts (one per agent repo):
   edamame_openclaw/tests/e2e_inject_intent.sh
