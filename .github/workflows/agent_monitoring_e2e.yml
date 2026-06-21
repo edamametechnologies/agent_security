@@ -10,11 +10,11 @@ name: Agent fleet monitoring E2E
 #   5. drives a divergence scenario to a DIVERGENCE verdict, and
 #   6. asserts the host blast-radius surface.
 #
-# This is a standalone signal workflow -- it is NOT wired into the release
-# security gate. Per-agent install/detection/unsecured and the fleet-wide
-# divergence/blast-radius legs are hard failures; the LLM-backed intent push
-# is best-effort (warn only). All cross-agent orchestration lives in
-# tests/e2e/run_fleet_monitoring.py.
+# This workflow gates the EDAMAME release: edamame_app/release_all.sh lists
+# it in AGENT_PLUGIN_E2E_WORKFLOWS, so a red run blocks the release. Per-agent
+# install/detection/unsecured and the fleet-wide divergence/blast-radius legs
+# are hard failures; the LLM-backed intent push is best-effort (warn only).
+# All cross-agent orchestration lives in tests/e2e/run_fleet_monitoring.py.
 
 on:
   push:
@@ -106,12 +106,18 @@ jobs:
           repository: edamametechnologies/edamame_openclaw
           path: edamame_openclaw
 
-      # ── EDAMAME Posture daemon (disconnected + packet capture) ─────────
+      # ── EDAMAME Posture daemon (connected + packet capture) ────────────
+      # Connected so the runner IP is lifted and the edamame_cli install
+      # below resolves the current release instead of the 1.2.0 fallback.
       - name: Setup EDAMAME Posture
         uses: edamametechnologies/edamame_posture_action@v1
         with:
-          disconnected_mode: true
+          edamame_user: ${{ vars.EDAMAME_POSTURE_USER }}
+          edamame_domain: ${{ vars.EDAMAME_POSTURE_DOMAIN }}
+          edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
+          edamame_id: ${{ github.run_id }}
           packet_capture: true
+          wait_for_api: true
           checkout: false
         env:
           EDAMAME_LLM_API_KEY: ${{ secrets.EDAMAME_LLM_API_KEY }}
