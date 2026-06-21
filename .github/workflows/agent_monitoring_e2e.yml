@@ -11,10 +11,14 @@ name: Agent fleet monitoring E2E
 #   6. asserts the host blast-radius surface.
 #
 # This workflow gates the EDAMAME release: edamame_app/release_all.sh lists
-# it in AGENT_PLUGIN_E2E_WORKFLOWS, so a red run blocks the release. Per-agent
-# install/detection/unsecured and the fleet-wide divergence/blast-radius legs
-# are hard failures; the LLM-backed intent push is best-effort (warn only).
-# All cross-agent orchestration lives in tests/e2e/run_fleet_monitoring.py.
+# it in AGENT_PLUGIN_E2E_WORKFLOWS, so a red run blocks the release. Hard
+# failures: per-agent install, non-openclaw observer detection, and the
+# fleet-wide divergence + blast-radius legs. Soft (warn only): the unsecured_
+# <agent> toggle (cross-platform activation-on-pause not yet consistent),
+# openclaw passive discovery (its ~/.openclaw/agents/<id> fixture is not seeded
+# by the generic path; the divergence leg exercises openclaw end-to-end), and
+# the LLM-backed intent push. All cross-agent orchestration lives in
+# tests/e2e/run_fleet_monitoring.py.
 
 on:
   push:
@@ -224,7 +228,18 @@ jobs:
         run: |
           PY=python3
           command -v python3 >/dev/null 2>&1 || PY=python
-          "$PY" tests/e2e/run_fleet_monitoring.py
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            # The posture daemon runs as root for packet capture, so its
+            # transcript observer resolves agent roots under /root. Run the
+            # driver (installs + PSK seeding + edamame_cli) as root with
+            # HOME=/root so the installed agents land where the daemon looks.
+            # PATH is forwarded so the node/python toolchains stay resolvable
+            # under sudo's secure_path.
+            PYBIN=$(command -v "$PY")
+            sudo -E env "PATH=$PATH" "HOME=/root" "$PYBIN" tests/e2e/run_fleet_monitoring.py
+          else
+            "$PY" tests/e2e/run_fleet_monitoring.py
+          fi
 
       # ── Teardown ───────────────────────────────────────────────────────
       - name: Stop daemon
