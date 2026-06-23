@@ -42,16 +42,16 @@ name: Agent fleet monitoring E2E
 # and OS-level L7 attribution of a bash-opened UDP socket are not yet verified, so
 # the probe still RUNS on Windows but the GATE is best-effort there (a Windows miss
 # is a soft warning, not a hard failure). The probe is a low-volume, agent-accepted
-# UDP path-reachability check (the representative agent refuses the 297-connection
-# multi-IP hammer but accepts one small datagram per target per pass): SIX fixed
-# public reference IPs run by different organizations x TWO high, non-standard UDP
-# ports (63169/63170) = 12 UNIQUE unexplained host:port destinations, re-sent for
-# ~100s so the agent stays alive across flodbadd's lagging L7 parent attribution.
-# The HIGH UDP PORT is the fix for the prior CLEAN verdict: the earlier TCP/53
-# probe DID cross the deterministic threshold but the daemon's LLM adjudicator
-# cleared it (a "rootIP:53" reads as benign DNS), whereas high-port UDP egress is
-# never benign-infrastructure deterministically AND has no benign-DNS story for the
-# LLM, so the DIVERGENCE verdict is KEPT. 12 destinations >> the engine's REAL
+# UDP egress check: SIX fixed RFC 5737 TEST-NET addresses (192.0.2.x /
+# 198.51.100.x / 203.0.113.x -- IANA documentation/test blocks with NO real host,
+# so the agent does not refuse them as third-party infrastructure) x TWO high,
+# non-standard UDP ports (63169/63170) = 12 UNIQUE unexplained host:port
+# destinations, re-sent for ~100s so the agent stays alive across flodbadd's lagging
+# L7 parent attribution. A high UDP port to a TEST-NET IP is never
+# benign-infrastructure-exempt deterministically (is_local_or_infrastructure spares
+# only loopback/RFC1918/link-local + DNS/NTP/OCSP), so the engine recognizes
+# DIVERGENCE. The gate asserts on the DETERMINISTIC verdict, so it holds whether the
+# downstream LLM keeps or suppresses the alert. 12 destinations >> the engine's REAL
 # production default threshold (4) -- no lowered-threshold env var, no reliance on
 # incidental egress.
 #
