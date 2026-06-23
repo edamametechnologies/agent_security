@@ -46,8 +46,11 @@ name: Agent fleet monitoring E2E
 # 198.51.100.x / 203.0.113.x -- IANA documentation/test blocks with NO real host,
 # so the agent does not refuse them as third-party infrastructure) x TWO high,
 # non-standard UDP ports (63169/63170) = 12 UNIQUE unexplained host:port
-# destinations, re-sent for ~100s so the agent stays alive across flodbadd's lagging
-# L7 parent attribution. A high UDP port to a TEST-NET IP is never
+# destinations. Each socket is HELD OPEN for the whole ~100s window (so flodbadd's
+# socket-table poll reliably attributes pid=bash -> parent=node/claude; an earlier
+# open-send-close-immediately probe left every session proc=None and was dropped) and
+# re-sent each round so the agent stays alive across flodbadd's lagging L7 parent
+# attribution. A high UDP port to a TEST-NET IP is never
 # benign-infrastructure-exempt deterministically (is_local_or_infrastructure spares
 # only loopback/RFC1918/link-local + DNS/NTP/OCSP), so the engine recognizes
 # DIVERGENCE. The gate asserts on the DETERMINISTIC verdict, so it holds whether the
