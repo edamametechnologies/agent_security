@@ -771,6 +771,58 @@ def _divergence_status() -> tuple[bool, int, int]:
     )
 
 
+def _llm_probe() -> str:
+    """Probe the daemon's configured LLM provider. The behavioral-model build
+    depends on it, so a failed probe pinpoints an LLM/Portal/config problem
+    rather than a transcript-pipeline problem."""
+    res = rpc_quiet("agentic_test_llm")
+    if isinstance(res, dict):
+        return (
+            f"success={res.get('success')} provider={res.get('provider')!r} "
+            f"message={res.get('message')!r}"
+        )
+    return f"(unparsed: {str(res)[:200]})"
+
+
+def _force_model_build(agent_type: str) -> tuple[bool, str]:
+    """Force a fresh behavioral-model build, bypassing the observer's hash-skip.
+
+    The observer tick hash-skips the LLM round-trip when the transcript payload
+    is byte-identical to the last successful ingest, so repeated ticks cannot
+    rebuild a model that failed to register the first time. This collects the
+    agent's raw activity and feeds it straight to
+    upsert_behavioral_model_from_raw_sessions (the exact payload the observer
+    would use), so every call genuinely re-runs the build. Returns (ok, detail);
+    on failure `detail` carries the VERBATIM core error so CI shows the real
+    root cause instead of a silent 'model never reached the engine'."""
+    raw = rpc_quiet(
+        "get_raw_agent_activity",
+        json.dumps({"agent_type": agent_type, "active_window_minutes": 0, "limit": 0}),
+    )
+    if not isinstance(raw, dict):
+        return False, "get_raw_agent_activity returned no object"
+    if raw.get("error"):
+        return False, f"collect error: {raw.get('error')}"
+    payload = raw.get("payload") or {}
+    sessions = payload.get("sessions") or []
+    diag = raw.get("diagnostics") or {}
+    if not sessions:
+        return False, (
+            "no raw sessions to model "
+            f"(root_accessible={diag.get('transcripts_root_accessible')} "
+            f"roots={diag.get('transcripts_roots')})"
+        )
+    res = rpc_quiet(
+        "upsert_behavioral_model_from_raw_sessions",
+        json.dumps({"raw_sessions_json": json.dumps(payload)}),
+    )
+    if isinstance(res, dict) and res.get("success"):
+        win = res.get("window") or {}
+        return True, f"built from {len(sessions)} session(s) (hash={str(win.get('hash'))[:12]})"
+    err = res.get("error") if isinstance(res, dict) else res
+    return False, f"upsert failed from {len(sessions)} session(s): {err}"
+
+
 # Verdict evidence categories that count as a genuine divergence for a model
 # built from REAL agent activity. `correlation:unexplained` is the primary
 # real-model signal (egress to a destination the real model never declared);
@@ -856,23 +908,39 @@ def run_real_divergence(agent_type: str, drive_timeout: int) -> tuple[bool, str]
     log("--- Starting divergence engine (no clear: preserve the real model) ---")
     rpc_quiet("start_divergence_engine", "[true, 300]")
 
-    log("--- Re-pushing real model via observer tick ---")
-    set_observer_enabled(agent_type, True)
-    observer_tick(agent_type)
+    # The behavioral-model build is an LLM round-trip. Probe the daemon's
+    # configured provider first so a build failure below is unambiguous: a failed
+    # probe means the LLM/Portal/key is the problem (not the transcript path).
+    log("--- Probing daemon LLM provider (behavioral-model build dependency) ---")
+    log(f"  agentic_test_llm: {_llm_probe()}")
 
-    log("--- Waiting for real behavioral model in the divergence engine ---")
+    log("--- Building real behavioral model directly (bypass observer hash-skip) ---")
+    set_observer_enabled(agent_type, True)
     waited = 0
-    while waited <= 120:
+    last_detail = ""
+    while waited <= 180:
         running, contrib, age = _divergence_status()
         if running and contrib > 0:
             log(f"  model ready: running={running} contributors={contrib} age={age}s")
             break
-        log(f"  model warming: running={running} contributors={contrib} age={age}s")
-        observer_tick(agent_type)
+        ok, last_detail = _force_model_build(agent_type)
+        log(
+            f"  model warming: running={running} contributors={contrib} age={age}s "
+            f"| rebuild: {'ok' if ok else 'FAIL'} -- {last_detail}"
+        )
         time.sleep(6)
         waited += 6
     else:
-        return False, "real behavioral model never reached the divergence engine"
+        # Decisive diagnostics: the LLM probe above already showed whether the
+        # provider is reachable; dump the registry so CI shows whether ANY
+        # contributor registered and re-probe the LLM in case it flapped.
+        contribs = rpc_quiet("get_behavioral_model_contributors")
+        log(f"  registry contributors: {json.dumps(contribs)[:1500] if contribs is not None else 'unavailable'}")
+        log(f"  agentic_test_llm (re-probe): {_llm_probe()}")
+        return False, (
+            "real behavioral model never reached the divergence engine "
+            f"(last rebuild: {last_detail or 'no attempt'})"
+        )
 
     # Diagnostic: show the model scope the upcoming egress lineage must match.
     log("--- Behavioral model scope (diagnostic) ---")
