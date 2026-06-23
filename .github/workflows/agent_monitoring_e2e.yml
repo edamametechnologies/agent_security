@@ -39,13 +39,15 @@ name: Agent fleet monitoring E2E
 # The divergence leg is MULTIPLATFORM. It drives the divergent egress through the
 # agent's persistent shell using bash builtin /dev/tcp -- available on Linux
 # /bin/bash, macOS /bin/bash 3.2, and Windows Git Bash (MSYS2) alike. The probe is
-# the representative agent's OWN proposed benign action (it refuses bulk multi-IP
-# probing but explicitly offered "a single /dev/tcp DNS-over-TCP query to one root
-# server"): one root nameserver (198.41.0.4), one standard DNS NS query, re-checked
-# for ~100s so the agent stays alive across flodbadd's lagging L7 parent
-# attribution (the fix for the prior CLEAN-verdict behavior). One unexplained
-# destination scores 1, so the job sets
-# EDAMAME_DIVERGENCE_UNEXPLAINED_EGRESS_SCORE_THRESHOLD=1. It runs on all 3 OSes.
+# a low-volume, agent-accepted reachability/redundancy check (the representative
+# agent refuses the 297-connection multi-IP hammer but accepts one small
+# DNS-over-TCP NS query per server): SIX canonical public root nameservers run by
+# different operators (Verisign / Cogent / U-Maryland / ISC / DoD / RIPE),
+# re-checked for ~100s so the agent stays alive across flodbadd's lagging L7
+# parent attribution (the fix for the prior CLEAN-verdict behavior). Each distinct
+# root:53 is one UNIQUE unexplained destination, so 6 roots score >= 6 and cross
+# the engine's REAL production default threshold (4) on their own -- no lowered-
+# threshold env var, no reliance on incidental egress. It runs on all 3 OSes.
 #
 # This workflow gates the EDAMAME release: edamame_app/release_all.sh lists it in
 # AGENT_PLUGIN_E2E_WORKFLOWS, so a red run blocks the release. Hard failures:
@@ -129,14 +131,6 @@ jobs:
           agentic_provider: edamame
         env:
           EDAMAME_LLM_API_KEY: ${{ secrets.EDAMAME_LLM_API_KEY }}
-          # The divergence leg drives the agent's OWN proposed benign action -- a
-          # single transparent /dev/tcp DNS-over-TCP reachability check to ONE root
-          # nameserver (the representative agent refuses bulk multi-IP probing). One
-          # unexplained destination scores 1, so configure the engine to alert on a
-          # single real unexplained destination. The daemon inherits this via the
-          # action's `sudo -E` (same path as EDAMAME_LLM_API_KEY above); the engine
-          # reads it per tick in unexplained_egress_score_threshold().
-          EDAMAME_DIVERGENCE_UNEXPLAINED_EGRESS_SCORE_THRESHOLD: '1'
 
       - name: Set EDAMAME_POSTURE env var
         shell: bash
