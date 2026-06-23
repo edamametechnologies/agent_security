@@ -97,9 +97,16 @@ jobs:
         with:
           path: agent_security
 
-      # ── EDAMAME Posture daemon (connected + packet capture) ────────────
+      # ── EDAMAME Posture daemon (connected + packet capture + LLM) ──────
       # Connected so the runner IP is lifted and the edamame_cli install
       # below resolves the current release instead of the 1.2.0 fallback.
+      # agentic_mode/agentic_provider configure the daemon's LLM provider:
+      # the plugin-free host-side observer builds behavioral models via
+      # upsert_behavioral_model_from_raw_sessions, which is a daemon-side LLM
+      # round-trip. Without a configured provider it fails with "No configured
+      # LLM provider available for raw-session ingest" and no model ever
+      # reaches the divergence engine. (The plugin path pushed a pre-built
+      # window and so did not need this; the host-side path does.)
       - name: Setup EDAMAME Posture
         uses: edamametechnologies/edamame_posture_action@v1
         with:
@@ -110,6 +117,8 @@ jobs:
           packet_capture: true
           wait_for_api: true
           checkout: false
+          agentic_mode: analyze
+          agentic_provider: edamame
         env:
           EDAMAME_LLM_API_KEY: ${{ secrets.EDAMAME_LLM_API_KEY }}
 
