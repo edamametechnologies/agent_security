@@ -784,6 +784,33 @@ def _llm_probe() -> str:
     return f"(unparsed: {str(res)[:200]})"
 
 
+def ensure_daemon_llm_provider() -> str:
+    """Configure the daemon's LLM provider for the plugin-free observer path.
+
+    The host-side observer builds behavioral models via
+    upsert_behavioral_model_from_raw_sessions, which is a DAEMON-side LLM
+    round-trip: it needs a provider configured ON THE DAEMON process. The posture
+    action is asked to set `agentic_provider: edamame`, but that runs in the
+    action's daemon-start path and has not reliably reached the live daemon
+    (observed provider='none' via agentic_test_llm, while the plugin path used to
+    push a pre-built window and never needed it). The driver holds
+    EDAMAME_LLM_API_KEY in its own env, so it configures the daemon directly
+    through the documented headless CI/CD auth RPC -- agentic_set_edamame_api_key
+    -- which sets provider='internal' + the key and persists it core-side.
+    Passing the actual key VALUE (not relying on the daemon inheriting the env)
+    sidesteps any sudo env-forwarding gap on the daemon-start side. Idempotent;
+    safe to call repeatedly. Returns the post-config probe string."""
+    before = _llm_probe()
+    key = os.environ.get("EDAMAME_LLM_API_KEY", "").strip()
+    if not key:
+        log(f"  WARN: EDAMAME_LLM_API_KEY unset -- cannot configure daemon LLM (probe: {before})")
+        return before
+    res = rpc_quiet("agentic_set_edamame_api_key", json.dumps({"api_key": key}))
+    after = _llm_probe()
+    log(f"  agentic_set_edamame_api_key -> {res!r} | before: {before} | after: {after}")
+    return after
+
+
 def _force_model_build(agent_type: str) -> tuple[bool, str]:
     """Force a fresh behavioral-model build, bypassing the observer's hash-skip.
 
@@ -908,11 +935,12 @@ def run_real_divergence(agent_type: str, drive_timeout: int) -> tuple[bool, str]
     log("--- Starting divergence engine (no clear: preserve the real model) ---")
     rpc_quiet("start_divergence_engine", "[true, 300]")
 
-    # The behavioral-model build is an LLM round-trip. Probe the daemon's
-    # configured provider first so a build failure below is unambiguous: a failed
-    # probe means the LLM/Portal/key is the problem (not the transcript path).
-    log("--- Probing daemon LLM provider (behavioral-model build dependency) ---")
-    log(f"  agentic_test_llm: {_llm_probe()}")
+    # The behavioral-model build is a daemon-side LLM round-trip. Re-ensure the
+    # provider here (idempotent) so a build failure below is unambiguous: if the
+    # provider is configured and the build still fails, it's the transcript
+    # pipeline, not the LLM/Portal/key.
+    log("--- Ensuring daemon LLM provider (behavioral-model build dependency) ---")
+    ensure_daemon_llm_provider()
 
     log("--- Building real behavioral model directly (bypass observer hash-skip) ---")
     set_observer_enabled(agent_type, True)
@@ -1090,6 +1118,13 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001
         log(f"FAIL: cannot reach edamame core via edamame_cli: {exc}")
         return 1
+
+    # The plugin-free host-side observer builds behavioral models via a
+    # daemon-side LLM round-trip; ensure the daemon actually has a provider
+    # configured before any model build (detection observer ticks AND the
+    # divergence leg both depend on it). Done once, idempotently, here.
+    log("Configuring daemon LLM provider (host-side observer dependency)")
+    ensure_daemon_llm_provider()
 
     results: dict[str, dict] = {}
     driven_detected: list[str] = []
