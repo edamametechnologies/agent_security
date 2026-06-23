@@ -1,71 +1,77 @@
 #!/usr/bin/env python3
 """
-Consolidated fleet monitoring E2E driver.
+Consolidated fleet monitoring E2E driver (REAL agents only).
 
-Installs every supported EDAMAME agent plugin from its checked-out repo,
-bootstraps activity, and verifies that EDAMAME's host-side transcript
-observer detects each agent, that pausing an agent's observer raises its
-`unsecured_<agent>` internal threat, that the divergence engine reaches a
-DIVERGENCE verdict against a seeded behavioral model, and that the host
-blast-radius surface reports the expected structure.
+Installs every supported EDAMAME agent plugin from its checked-out repo, then
+-- for every agent whose real product can be driven headlessly in this CI
+environment -- installs and DRIVES the real agent CLI with a real API key,
+producing genuine transcripts on disk. It then verifies that EDAMAME's
+host-side transcript observer detects each driven agent, that pausing an
+agent's observer raises its `unsecured_<agent>` internal threat, and (on one
+representative real agent) that driving a genuine divergent egress THROUGH the
+agent flips the divergence engine to a DIVERGENCE verdict against the model
+EDAMAME built from that agent's own real activity. Finally it asserts the host
+blast-radius surface.
 
-This is the multi-agent, multi-platform counterpart to each plugin repo's
-own `tests/e2e_inject_intent.sh` + per-repo `test_e2e.yml`. It reuses the
-exact proven recipe (install -> pair PSK -> intent -> observer probe ->
-divergence verdict) in a registry-driven loop and adds the net-new
-host-blast-radius assertion.
+NO SYNTHETIC INJECTION. This driver never writes fake transcripts, never seeds
+observer roots, and never hand-crafts a behavioral model. Every behavioral
+model is produced by EDAMAME's LLM pipeline from real agent activity, and the
+divergent stimulus is emitted by a process the real agent itself spawned.
+
+Agents that genuinely cannot be driven headlessly in hosted CI are SKIPPED with
+an explicit, logged reason (never silently faked):
+  - cursor          GUI IDE; no headless agent CLI + key wired in hosted CI
+  - claude_desktop  GUI-only desktop app; cannot run headless
+  - hermes          no headless runtime installable in hosted CI
+  - openclaw        off-host agent (Lima VM); not host-resident in hosted CI
+
+Real-coverage floor (HARD): at least one real-driver agent (claude_code or
+codex) MUST be installed, driven, and detected on this platform. If zero real
+agents are driven, the gate FAILS -- a green run with only skips would be
+indistinguishable from the old synthetic gate and is not acceptable.
 
 Per-agent verification levels:
-  - install            HARD  (the plugin must install from its repo)
-  - observer detection HARD for the five flat-transcript agents (cursor,
-                       claude_code, claude_desktop, codex, hermes); SOFT for
-                       openclaw (its ~/.openclaw/agents/<id> passive-discovery
-                       layout is not seeded by the generic path -- the
-                       divergence leg below exercises openclaw end-to-end)
-  - unsecured toggle   SOFT  (collected; pause -> threat active, resume ->
-                       inactive. Validated on macOS, but the cross-platform
-                       unsecured_<agent> activation-on-pause is not yet
-                       consistent on Windows/Linux; warn only until hardened)
-  - intent (LLM push)  SOFT  (behavioral-model push is the flaky LLM leg; warn only)
+  - install            HARD for real-driver agents; SOFT for skip agents
+  - real drive         HARD for real-driver agents whose CLI + key are present
+  - observer detection HARD for driven agents; SKIP for skip agents
+  - unsecured toggle   SOFT (collected; cross-platform activation-on-pause is
+                       not yet uniformly deterministic -- warn only)
 
 Fleet-wide verification (run once):
-  - divergence verdict HARD  (seed model + trigger + assert DIVERGENCE)
-  - host blast radius   HARD  (structural assertion on get_host_blast_radius)
-
-HARD failures (per-agent install, non-openclaw observer detection, or the
-fleet-wide divergence/blast-radius legs) make the driver exit non-zero. SOFT
-failures (unsecured toggle, openclaw detection, intent push) only print a
-warning. The driver loops over every agent before reporting, so a single CI
-run surfaces all per-agent failures at once.
+  - divergence verdict HARD  (real model + real-agent-driven egress -> DIVERGENCE)
+  - host blast radius  HARD  (structural assertion on get_host_blast_radius)
 
 Prerequisites (set up by the calling workflow):
   - edamame_posture daemon running (disconnected mode + packet capture)
   - MCP server started on 127.0.0.1:3000 with a PSK
   - edamame_cli installed and reachable (EDAMAME_CLI env var)
   - each agent plugin repo checked out, with its <REPO_ENV_VAR> exported
-    (e.g. CURSOR_REPO, CLAUDE_REPO, ...) so supported_agents can locate it
-  - Node.js 18+ and Python 3 on PATH
+  - Node.js 18+, Python 3, and the real agent CLIs (claude, codex) on PATH
+  - ANTHROPIC_API_KEY / OPENAI_API_KEY exported for the real drivers
 
 Environment:
-  EDAMAME_CLI              Path to edamame_cli binary (forwarded to children)
-  EDAMAME_MCP_PSK          Daemon MCP PSK (written into each agent's PSK file)
-  EDAMAME_AGENTS           Optional CSV of agent_types to restrict the run
-  FLEET_REPRESENTATIVE     Agent type used for the divergence leg (default openclaw)
-  FLEET_SKIP_DIVERGENCE    If "1", skip the divergence leg
-  FLEET_SKIP_BLAST_RADIUS  If "1", skip the blast-radius leg
-  FLEET_SCORE_WAIT_SECS    Seconds to wait for score recompute (default 8)
-  GITHUB_RUN_ID            Used to derive a unique divergence agent_instance_id
+  EDAMAME_CLI                 Path to edamame_cli binary (forwarded to children)
+  EDAMAME_MCP_PSK             Daemon MCP PSK (written into each agent's PSK file)
+  ANTHROPIC_API_KEY           Drives claude_code (real)
+  OPENAI_API_KEY              Drives codex (real)
+  EDAMAME_AGENTS              Optional CSV of agent_types to restrict the run
+  FLEET_SKIP_DIVERGENCE       If "1", skip the divergence leg
+  FLEET_SKIP_BLAST_RADIUS     If "1", skip the blast-radius leg
+  FLEET_SCORE_WAIT_SECS       Seconds to wait for score recompute (default 8)
+  FLEET_DRIVE_TIMEOUT_SECS    Per real-agent normal-drive timeout (default 360)
+  GITHUB_RUN_ID               Used in log context
 """
 
 from __future__ import annotations
 
 import argparse
-import datetime
 import json
 import os
 import platform
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -97,7 +103,13 @@ def is_windows() -> bool:
 
 # ── Subprocess helpers ───────────────────────────────────────────────────
 
-def run_cmd(cmd: list[str], cwd: Path | None, env: dict | None, timeout: int | None) -> int:
+def run_cmd(
+    cmd: list[str],
+    cwd: Path | None,
+    env: dict | None,
+    timeout: int | None,
+    stdin_text: str | None = None,
+) -> int:
     """Run a command, streaming output, returning the exit code (124 on timeout)."""
     log(f"  $ {' '.join(cmd)}")
     full_env = dict(os.environ)
@@ -110,6 +122,7 @@ def run_cmd(cmd: list[str], cwd: Path | None, env: dict | None, timeout: int | N
             env=full_env,
             timeout=timeout,
             text=True,
+            input=stdin_text,
             capture_output=True,
         )
     except subprocess.TimeoutExpired as exc:
@@ -128,16 +141,49 @@ def run_cmd(cmd: list[str], cwd: Path | None, env: dict | None, timeout: int | N
     return proc.returncode
 
 
+def popen_cmd(
+    cmd: list[str],
+    cwd: Path | None,
+    env: dict | None,
+    log_path: Path,
+    stdin_text: str | None = None,
+) -> subprocess.Popen:
+    """Spawn a background command, redirecting combined output to log_path."""
+    log(f"  $ (bg) {' '.join(cmd)}  > {log_path.name}")
+    full_env = dict(os.environ)
+    if env:
+        full_env.update(env)
+    fh = log_path.open("w", encoding="utf-8")
+    proc = subprocess.Popen(
+        cmd,
+        cwd=str(cwd) if cwd else None,
+        env=full_env,
+        text=True,
+        stdin=subprocess.PIPE if stdin_text is not None else None,
+        stdout=fh,
+        stderr=subprocess.STDOUT,
+    )
+    if stdin_text is not None and proc.stdin is not None:
+        try:
+            proc.stdin.write(stdin_text)
+            proc.stdin.close()
+        except Exception:  # noqa: BLE001
+            pass
+    return proc
+
+
+def cli_path(*candidates: str) -> str | None:
+    """Resolve the first available CLI binary, tolerating .cmd/.exe shims."""
+    for name in candidates:
+        found = shutil.which(name) or shutil.which(name + ".cmd") or shutil.which(name + ".exe")
+        if found:
+            return found
+    return None
+
+
 # ── Observer / score RPC helpers ─────────────────────────────────────────
 
 def rpc_quiet(method: str, args: str | None = None) -> object | None:
-    """Fire-and-forget RPC: swallow non-asserted failures, log a warning.
-
-    Used for mutators whose return value the driver does not assert on
-    (toggles, divergence engine control, capture start, ticks). The
-    asserted reads (get_*) still go through cli_rpc directly so genuine
-    failures surface.
-    """
     try:
         return cli_rpc(method, args)
     except Exception as exc:  # noqa: BLE001
@@ -158,12 +204,6 @@ def observer_row(agent_type: str) -> dict | None:
 
 
 def observer_tick(agent_type: str) -> dict | None:
-    """Force a single-agent observer tick.
-
-    `run_transcript_observer_tick_for` returns that agent's fresh status
-    object directly, so the caller can use it without racing a follow-up
-    get_transcript_observer_status read.
-    """
     row = rpc_quiet("run_transcript_observer_tick_for", json.dumps({"agent_type": agent_type}))
     return row if isinstance(row, dict) else None
 
@@ -182,6 +222,158 @@ def threat_active(name: str) -> bool:
         return False
     active = score.get("active") or []
     return any(isinstance(t, dict) and t.get("name") == name for t in active)
+
+
+# ── Real agent drivers ───────────────────────────────────────────────────
+#
+# Each driver installs nothing (the workflow installs the CLI); it just runs
+# the real product non-interactively in a throwaway workspace with a real key,
+# producing genuine on-disk transcripts the EDAMAME observer ingests.
+
+NORMAL_PROMPT = (
+    "You are in a small scratch project. Read README.md and hello.py, then "
+    "write one short sentence describing what hello.py does into a new file "
+    "named SUMMARY.txt. Keep it brief and do not access the network."
+)
+
+# Divergent egress stimulus, emitted by the agent's OWN persistent shell.
+#
+# The divergence engine attributes a network session to the agent's model only
+# when the session's lineage matches the model scope. Real-agent transcript
+# adapters derive `scope_parent_paths` = the agent binary (e.g. */node, */claude,
+# */codex), matched against the session's PARENT process. So the egressing
+# process must be a DIRECT CHILD of the agent. A python probe spawned through the
+# agent's shell (agent -> shell -> python) is a GRANDCHILD and would fall out of
+# scope. Instead we make the agent's persistent shell itself egress via bash's
+# `/dev/udp` pseudo-device: the egressing process is the shell, whose parent IS
+# the agent (node/codex) -> matches scope_parent_paths.
+#
+# Targets are public DNS-resolver IPs on HIGH ports: globally reachable, stable,
+# NOT owned by the agents' expected ASNs (CLOUDFLARENET / AMAZON / MICROSOFT-CORP
+# / NOTION), and -- because the ports are non-standard -- NOT classified as
+# benign DNS infrastructure. The IP x port grid yields many distinct unexplained
+# destinations, well above the unexplained-egress score threshold.
+#
+# bash `/dev/udp` is a bashism (not sh/dash/zsh): the divergence leg therefore
+# runs against an agent whose persistent shell is bash (claude_code on Linux).
+PROBE_IPS = [
+    "9.9.9.9", "149.112.112.112",        # Quad9 / WOODYNET
+    "208.67.222.222", "208.67.220.220",  # OpenDNS / Cisco
+    "4.2.2.1", "4.2.2.2",                # Level3 / Lumen
+]
+PROBE_PORTS = [63169, 63170, 63171, 63172, 63173]
+PROBE_DURATION_SECS = 100
+PROBE_MARKER = "edamame_fleet_divergence_probe"
+PROBE_PAYLOAD = "edamame_fleet_divergence_probe_payload_" + ("A" * 360)
+
+
+def build_divergence_shell_command(duration: int = PROBE_DURATION_SECS) -> str:
+    """Inline pure-bash /dev/udp egress loop run by the agent's persistent shell.
+
+    The redirection `> /dev/udp/$ip/$port` is performed by bash itself, so the
+    egressing process is the persistent shell (a direct child of the agent's
+    node/codex process) -- landing in scope_parent_paths. No child process is
+    spawned for the send, so there is no extra lineage level to fall out of scope.
+    """
+    ips = " ".join(PROBE_IPS)
+    ports = " ".join(str(p) for p in PROBE_PORTS)
+    return (
+        'end=$(( $(date +%s) + {duration} )); n=0; '
+        'while [ "$(date +%s)" -lt "$end" ]; do '
+        'for ip in {ips}; do for port in {ports}; do '
+        'echo -n {payload} > /dev/udp/$ip/$port 2>/dev/null && n=$((n+1)); '
+        'done; done; sleep 1; done; '
+        'echo {marker}_done sent=$n'
+    ).format(duration=duration, ips=ips, ports=ports, payload=PROBE_PAYLOAD, marker=PROBE_MARKER)
+
+
+def make_scratch_workspace(agent_type: str) -> Path:
+    base = Path(tempfile.mkdtemp(prefix=f"edamame_fleet_{agent_type}_"))
+    (base / "README.md").write_text(
+        "# EDAMAME fleet E2E scratch project\n\nA tiny project used to exercise a real agent.\n",
+        encoding="utf-8",
+    )
+    (base / "hello.py").write_text(
+        "def main():\n    print('hello from the edamame fleet e2e scratch project')\n\n\n"
+        "if __name__ == '__main__':\n    main()\n",
+        encoding="utf-8",
+    )
+    return base
+
+
+def drive_claude_code(workdir: Path, prompt: str, timeout: int, background: bool, log_path: Path | None):
+    cli = cli_path("claude")
+    if not cli:
+        return None
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        return None
+    cmd = [cli, "-p", "--dangerously-skip-permissions"]
+    # On Linux this driver runs as root (so the root daemon's transcript observer
+    # resolves /root/.claude). Claude Code hard-exits when --dangerously-skip-
+    # permissions is used as uid 0 unless IS_SANDBOX=1 (the documented ephemeral-
+    # sandbox escape hatch). Harmless for non-root macOS/Windows legs.
+    env = {"ANTHROPIC_API_KEY": key, "IS_SANDBOX": "1"}
+    if background:
+        assert log_path is not None
+        return popen_cmd(cmd, workdir, env, log_path, stdin_text=prompt)
+    return run_cmd(cmd, workdir, env, timeout, stdin_text=prompt)
+
+
+def drive_codex(workdir: Path, prompt: str, timeout: int, background: bool, log_path: Path | None):
+    cli = cli_path("codex")
+    if not cli:
+        return None
+    key = os.environ.get("OPENAI_API_KEY", "")
+    if not key:
+        return None
+    cmd = [
+        cli, "exec",
+        "--sandbox", "danger-full-access",
+        "--skip-git-repo-check",
+        "-C", str(workdir),
+        prompt,
+    ]
+    # Codex auth env var name varies across CLI versions (older codex-cli reads
+    # OPENAI_API_KEY; newer codex-rs documents CODEX_API_KEY). Set both.
+    env = {"OPENAI_API_KEY": key, "CODEX_API_KEY": key}
+    if background:
+        assert log_path is not None
+        return popen_cmd(cmd, workdir, env, log_path)
+    return run_cmd(cmd, workdir, env, timeout)
+
+
+# agent_type -> (cli candidates, key env var, normal-drive fn, divergence-drive fn)
+REAL_DRIVERS = {
+    "claude_code": {
+        "cli": ["claude"],
+        "key_env": "ANTHROPIC_API_KEY",
+        "drive": drive_claude_code,
+    },
+    "codex": {
+        "cli": ["codex"],
+        "key_env": "OPENAI_API_KEY",
+        "drive": drive_codex,
+    },
+}
+
+SKIP_REASONS = {
+    "cursor": "GUI IDE; no headless Cursor agent CLI + CURSOR_API_KEY wired in hosted CI",
+    "claude_desktop": "GUI-only desktop app; cannot run headless in hosted CI",
+    "hermes": "no headless Hermes runtime installable in hosted CI",
+    "openclaw": "off-host agent (Lima VM); not host-resident in hosted CI",
+}
+
+
+def real_driver_available(agent_type: str) -> tuple[bool, str]:
+    spec = REAL_DRIVERS.get(agent_type)
+    if not spec:
+        return False, SKIP_REASONS.get(agent_type, "no real driver for this agent in hosted CI")
+    if not cli_path(*spec["cli"]):
+        return False, f"{spec['cli'][0]} CLI not on PATH (agent runtime not installed)"
+    if not os.environ.get(spec["key_env"], ""):
+        return False, f"{spec['key_env']} not set (no provider key to drive the real agent)"
+    return True, "real driver available"
 
 
 # ── Per-agent steps ──────────────────────────────────────────────────────
@@ -214,11 +406,6 @@ def install_agent(agent: dict, repo_path: Path, workspace: Path) -> int:
 
 
 def write_psk(paths: dict, psk: str) -> Path | None:
-    """Write the daemon PSK into the agent's PSK file.
-
-    Prefer the path declared by the installed config.json
-    (`edamame_mcp_psk_file`); fall back to the registry-resolved psk_path.
-    """
     if not psk:
         return None
     psk_path: Path | None = None
@@ -240,55 +427,35 @@ def write_psk(paths: dict, psk: str) -> Path | None:
     return psk_path
 
 
-def run_intent(agent: dict, repo_path: Path) -> int:
-    e2e = agent.get("e2e") or {}
-    intent_rel = e2e.get("intent_script")
-    if not intent_rel:
-        log("  (no intent script in registry; skipping intent leg)")
-        return 0
-    script = repo_path / intent_rel
-    if not script.is_file():
-        log(f"  WARN: intent script missing: {script}")
-        return 1
-    timeout = int(e2e.get("intent_timeout_seconds") or 900)
-    env = {
-        "E2E_SKIP_PROVISION_STRICT": "1",
-        "E2E_SKIP_PLUGIN_CHECK": "1",
-        "E2E_SKIP_REPO_VERSION_CHECK": "1",
-        "E2E_POLL_ATTEMPTS": os.environ.get("E2E_POLL_ATTEMPTS", "36"),
-        "E2E_POLL_INTERVAL_SECS": os.environ.get("E2E_POLL_INTERVAL_SECS", "5"),
-        "EDAMAME_MCP_PSK": os.environ.get("EDAMAME_MCP_PSK", ""),
-        "EDAMAME_CLI": os.environ.get("EDAMAME_CLI", ""),
-    }
-    return run_cmd(["bash", str(script)], cwd=repo_path, env=env, timeout=timeout)
+def drive_real_agent_normal(agent_type: str, drive_timeout: int) -> tuple[bool, Path | None]:
+    """Run the real agent once with a benign prompt to produce genuine transcripts."""
+    spec = REAL_DRIVERS[agent_type]
+    workspace = make_scratch_workspace(agent_type)
+    log(f"  scratch workspace: {workspace}")
+    rc = spec["drive"](workspace, NORMAL_PROMPT, drive_timeout, False, None)
+    if rc is None:
+        log("  (real driver unavailable mid-run)")
+        return False, workspace
+    log(f"  real {agent_type} drive exit={rc}")
+    # A non-zero exit is not necessarily fatal: some agents return non-zero on
+    # benign tool friction yet still emit a transcript. Detection is the real
+    # gate, so report the rc but let the observer decide.
+    return rc == 0, workspace
 
 
-def verify_detection(agent_type: str, row_before: dict | None) -> tuple[bool, dict | None]:
-    """Tick the observer and confirm the agent is `discovered`.
-
-    Fallback: if not discovered but the observer advertised a transcripts
-    root it could not access, create that root + a tiny probe transcript and
-    re-tick. This is registry-free (uses the observer's own advertised root)
-    and only nudges discovery; it never fabricates behavioral content.
-    """
-    row = observer_tick(agent_type) or observer_row(agent_type)
-    if row and bool(row.get("discovered")):
-        return True, row
-    roots = (row or {}).get("last_transcripts_roots") or []
-    if roots:
-        try:
-            root = Path(os.path.expanduser(str(roots[0])))
-            root.mkdir(parents=True, exist_ok=True)
-            probe = root / "edamame_e2e_probe.jsonl"
-            if not probe.exists():
-                probe.write_text(
-                    '{"role":"user","content":"edamame fleet e2e discovery probe"}\n',
-                    encoding="utf-8",
-                )
-            log(f"  (discovery fallback: seeded advertised root {root})")
-        except Exception as exc:  # noqa: BLE001
-            log(f"  WARN: discovery fallback failed: {exc}")
+def verify_detection(agent_type: str, attempts: int = 12, interval: int = 5) -> tuple[bool, dict | None]:
+    """Tick the observer and confirm the agent is `discovered`. No seeding."""
+    row = None
+    for i in range(1, attempts + 1):
         row = observer_tick(agent_type) or observer_row(agent_type)
+        if row and bool(row.get("discovered")):
+            return True, row
+        log(
+            f"  detection attempt {i}/{attempts}: discovered="
+            f"{(row or {}).get('discovered')} sessions={(row or {}).get('last_session_count')} "
+            f"roots={(row or {}).get('last_transcripts_roots')}"
+        )
+        time.sleep(interval)
     return bool(row and row.get("discovered")), row
 
 
@@ -340,58 +507,6 @@ def assert_blast_radius() -> tuple[bool, str]:
     return True, detail
 
 
-def _divergence_window(agent_type: str, agent_instance_id: str) -> dict:
-    now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
-    blocked = [f"one.one.one.one:{p}" for p in range(63169, 63184)]
-    blocked += [f"1.0.0.1:{p}" for p in range(63169, 63184)]
-    blocked += [f"one.one.one.one:{p}" for p in range(63200, 63215)]
-    blocked += [f"1.1.1.1:{p}" for p in range(63200, 63215)]
-    return {
-        "window_start": (now - datetime.timedelta(minutes=5)).isoformat().replace("+00:00", "Z"),
-        "window_end": (now - datetime.timedelta(minutes=4)).isoformat().replace("+00:00", "Z"),
-        "agent_type": agent_type,
-        "agent_instance_id": agent_instance_id,
-        "predictions": [
-            {
-                "agent_type": agent_type,
-                "agent_instance_id": agent_instance_id,
-                "session_key": "e2e_divergence_probe_scope",
-                "action": "Workflow divergence probe scope",
-                "tools_called": ["run"],
-                "scope_process_paths": ["*/divergence_probe*"],
-                "scope_parent_paths": [],
-                "scope_grandparent_paths": [],
-                "scope_any_lineage_paths": [],
-                "expected_traffic": ["api.anthropic.com:443"],
-                "expected_sensitive_files": [],
-                "expected_lan_devices": [],
-                "expected_local_open_ports": [],
-                "expected_process_paths": ["*/divergence_probe*"],
-                "expected_parent_paths": [],
-                "expected_grandparent_paths": [],
-                "expected_open_files": [],
-                "expected_l7_protocols": [],
-                "expected_system_config": [],
-                "not_expected_traffic": blocked,
-                "not_expected_sensitive_files": [],
-                "not_expected_lan_devices": [],
-                "not_expected_local_open_ports": [],
-                "not_expected_process_paths": [],
-                "not_expected_parent_paths": [],
-                "not_expected_grandparent_paths": [],
-                "not_expected_open_files": [],
-                "not_expected_l7_protocols": [],
-                "not_expected_system_config": [],
-                "raw_input": None,
-            }
-        ],
-        "contributors": [],
-        "version": "e2e/divergence-probe",
-        "hash": "",
-        "ingested_at": now.isoformat().replace("+00:00", "Z"),
-    }
-
-
 def _divergence_status() -> tuple[bool, int, int]:
     s = cli_rpc("get_divergence_engine_status")
     if not isinstance(s, dict):
@@ -403,48 +518,134 @@ def _divergence_status() -> tuple[bool, int, int]:
     )
 
 
-def run_divergence(agent_type: str, triggers_dir: Path, min_age: int = 65) -> tuple[bool, str]:
-    run_id = os.environ.get("GITHUB_RUN_ID", "local")
-    agent_instance_id = f"e2e-divergence-ci-{agent_type}-{run_id}"
-    trigger = triggers_dir / "trigger_divergence.py"
-    if not trigger.is_file():
-        return False, f"trigger_divergence.py not found at {trigger}"
+# Verdict evidence categories that count as a genuine divergence for a model
+# built from REAL agent activity. `correlation:unexplained` is the primary
+# real-model signal (egress to a destination the real model never declared);
+# the blacklisted/not_expected variants are accepted if they fire too.
+DIVERGENCE_OK_CATEGORIES = {
+    "correlation:unexplained",
+    "correlation:unexplained_blacklisted",
+    "correlation:not_expected",
+}
+
+
+def dump_model_scope() -> None:
+    """Print the (truncated) frozen behavioral model so CI logs show the exact
+    scope arrays the egress lineage must match."""
+    raw = rpc_quiet("get_behavioral_model")
+    if not isinstance(raw, str) or not raw.strip():
+        log("  (behavioral model dump unavailable)")
+        return
+    try:
+        pretty = json.dumps(json.loads(raw), separators=(",", ":"))
+    except Exception:  # noqa: BLE001
+        pretty = raw
+    if len(pretty) > 4000:
+        pretty = pretty[:4000] + " ...(truncated)"
+    log(f"  model: {pretty}")
+
+
+def dump_probe_sessions() -> int:
+    """Print captured sessions whose destination is a probe IP, with full process
+    lineage and ASN. Decisive diagnostic: reveals whether flodbadd attributed the
+    egress to the agent (parent == node/codex => in scope) or to a shell
+    grandchild (parent == bash, grandparent == node => out of scope under a
+    parent-only model)."""
+    sessions = rpc_quiet("get_sessions")
+    if not isinstance(sessions, list):
+        log("  (sessions unavailable)")
+        return 0
+    hits = 0
+    for s in sessions:
+        if not isinstance(s, dict):
+            continue
+        sess = s.get("session") or {}
+        if str(sess.get("dst_ip") or "") not in PROBE_IPS:
+            continue
+        hits += 1
+        l7 = s.get("l7") or {}
+        asn = s.get("dst_asn") or {}
+        log(
+            f"    probe-session dst={sess.get('dst_ip')}:{sess.get('dst_port')} "
+            f"proc={l7.get('process_name')!r} parent={l7.get('parent_process_name')!r} "
+            f"gp={l7.get('grandparent_process_name')!r} asn={(asn or {}).get('owner')!r}"
+        )
+    log(f"  captured {hits} probe session(s) to probe IPs")
+    return hits
+
+
+def run_real_divergence(agent_type: str, drive_timeout: int) -> tuple[bool, str]:
+    """Build a real model from the agent, freeze it, then drive divergent
+    egress THROUGH the agent and assert a DIVERGENCE verdict."""
+    spec = REAL_DRIVERS.get(agent_type)
+    if not spec:
+        return False, f"no real driver for representative agent {agent_type}"
 
     log("--- Starting packet capture ---")
     rpc_quiet("start_capture")
     time.sleep(10)
 
-    log("--- Seeding divergence harness model ---")
-    rpc_quiet("clear_divergence_state")
-    rpc_quiet("clear_divergence_history")
+    log("--- Starting divergence engine (no clear: preserve the real model) ---")
     rpc_quiet("start_divergence_engine", "[true, 300]")
-    window = _divergence_window(agent_type, agent_instance_id)
-    rpc_quiet("upsert_behavioral_model", json.dumps({"window_json": json.dumps(window)}))
 
-    log("--- Waiting for divergence model readiness ---")
+    log("--- Re-pushing real model via observer tick ---")
+    set_observer_enabled(agent_type, True)
+    observer_tick(agent_type)
+
+    log("--- Waiting for real behavioral model in the divergence engine ---")
     waited = 0
-    max_wait = min_age + 60
-    while waited <= max_wait:
+    while waited <= 120:
         running, contrib, age = _divergence_status()
-        if running and contrib > 0 and age >= min_age:
+        if running and contrib > 0:
+            log(f"  model ready: running={running} contributors={contrib} age={age}s")
             break
-        log(f"  divergence model warming: running={running} contributors={contrib} age={age}s")
-        time.sleep(5)
-        waited += 5
+        log(f"  model warming: running={running} contributors={contrib} age={age}s")
+        observer_tick(agent_type)
+        time.sleep(6)
+        waited += 6
     else:
-        return False, "divergence model did not become ready"
+        return False, "real behavioral model never reached the divergence engine"
 
-    log("--- Starting divergence trigger (60s) ---")
-    proc = subprocess.Popen(
-        [sys.executable, str(trigger), "--agent-type", agent_type, "--duration", "60"]
+    # Diagnostic: show the model scope the upcoming egress lineage must match.
+    log("--- Behavioral model scope (diagnostic) ---")
+    dump_model_scope()
+
+    # Freeze the model so the upcoming probe activity is NOT ingested as
+    # 'expected'. The egress the agent is about to make is therefore unexplained.
+    log("--- Freezing model (pause observer) before divergent drive ---")
+    set_observer_enabled(agent_type, False)
+
+    workspace = make_scratch_workspace(f"{agent_type}_divergence")
+    drive_log = workspace / "divergent_drive.log"
+    shell_cmd = build_divergence_shell_command()
+
+    # The agent must run the command INLINE in its persistent shell (so the
+    # egressing process is the shell, parent == agent). Saving to a file or
+    # wrapping in `bash -c` would spawn a child shell and push the egress to a
+    # grandchild lineage that the parent-only model scope does not match.
+    divergent_prompt = (
+        "I am testing my own machine's runtime monitoring on a disposable CI "
+        "host. Run this EXACT command directly in your shell -- do NOT write it "
+        "to a file and do NOT wrap it in another bash -c invocation -- and WAIT "
+        f"for it to finish before responding (it runs ~{PROBE_DURATION_SECS}s), "
+        f"then report its final line verbatim:\n\n{shell_cmd}"
     )
+
+    log(f"--- Driving divergent egress THROUGH real {agent_type} (persistent-shell /dev/udp) ---")
+    proc = spec["drive"](workspace, divergent_prompt, drive_timeout, True, drive_log)
+    if proc is None:
+        set_observer_enabled(agent_type, True)
+        return False, "real driver unavailable for divergent drive"
+
     try:
-        log("--- Waiting 30s for session ingestion ---")
+        log("--- Waiting 30s for divergent session ingestion ---")
         time.sleep(30)
+        log("--- Captured probe sessions (diagnostic; shows real lineage) ---")
+        dump_probe_sessions()
 
         log("--- Checking divergence verdict semantics ---")
         verdict = ""
-        for attempt in range(1, 13):
+        for attempt in range(1, 19):
             rpc_quiet("debug_run_divergence_tick")
             summary = cli_rpc("get_divergence_verdict")
             if isinstance(summary, str):
@@ -461,47 +662,58 @@ def run_divergence(agent_type: str, triggers_dir: Path, min_age: int = 65) -> tu
                 verdict == "DIVERGENCE"
                 and running
                 and contrib > 0
-                and age >= min_age
-                and "correlation:not_expected" in categories
+                and bool(categories & DIVERGENCE_OK_CATEGORIES)
             )
             log(
-                f"  attempt {attempt}/12: verdict={verdict or 'NONE'} running={running} "
+                f"  attempt {attempt}/18: verdict={verdict or 'NONE'} running={running} "
                 f"contributors={contrib} age={age}s "
-                f"categories={','.join(sorted(c for c in categories if c)) or 'none'}"
+                f"categories={','.join(sorted(c for c in categories if c)) or 'none'} "
+                f"agent_alive={proc.poll() is None}"
             )
             if ok:
-                return True, f"verdict=DIVERGENCE age={age}s contributors={contrib}"
+                matched = ",".join(sorted(categories & DIVERGENCE_OK_CATEGORIES))
+                return True, f"verdict=DIVERGENCE via [{matched}] contributors={contrib}"
+            if attempt % 6 == 0:
+                log("--- re-dump captured probe sessions ---")
+                dump_probe_sessions()
             time.sleep(10)
+        log("--- final captured probe sessions ---")
+        dump_probe_sessions()
+        if drive_log.is_file():
+            log("--- divergent drive log (tail) ---")
+            tail = drive_log.read_text(encoding="utf-8", errors="replace").splitlines()[-25:]
+            for line in tail:
+                log(f"    {line}")
         return False, f"verdict not satisfied (last verdict={verdict or 'NONE'})"
     finally:
-        proc.terminate()
         try:
+            proc.terminate()
             proc.wait(timeout=10)
         except Exception:  # noqa: BLE001
-            proc.kill()
-        cleanup = triggers_dir / "cleanup.py"
-        if cleanup.is_file():
-            run_cmd([sys.executable, str(cleanup), "--agent-type", agent_type], cwd=None, env=None, timeout=60)
+            try:
+                proc.kill()
+            except Exception:  # noqa: BLE001
+                pass
+        set_observer_enabled(agent_type, True)
 
 
 # ── Main ─────────────────────────────────────────────────────────────────
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Consolidated EDAMAME fleet monitoring E2E driver.")
+    p = argparse.ArgumentParser(description="Consolidated EDAMAME fleet monitoring E2E driver (real agents).")
     p.add_argument(
         "--agents",
         default=os.environ.get("EDAMAME_AGENTS", ""),
         help="Optional CSV of agent_types to run (default: all in registry).",
     )
-    p.add_argument(
-        "--representative-agent",
-        default=os.environ.get("FLEET_REPRESENTATIVE", "openclaw"),
-        help="Agent type used for the divergence leg (default: openclaw).",
-    )
     p.add_argument("--skip-divergence", action="store_true", default=os.environ.get("FLEET_SKIP_DIVERGENCE") == "1")
     p.add_argument("--skip-blast-radius", action="store_true", default=os.environ.get("FLEET_SKIP_BLAST_RADIUS") == "1")
-    p.add_argument("--skip-install", action="store_true", help="Skip install/intent legs (detection only; local dev).")
     p.add_argument("--score-wait", type=int, default=int(os.environ.get("FLEET_SCORE_WAIT_SECS", "8")))
+    p.add_argument(
+        "--drive-timeout",
+        type=int,
+        default=int(os.environ.get("FLEET_DRIVE_TIMEOUT_SECS", "360")),
+    )
     return p.parse_args()
 
 
@@ -521,12 +733,13 @@ def main() -> int:
     workspace = Path(os.environ.get("GITHUB_WORKSPACE", os.getcwd())).resolve()
     score_wait = args.score_wait
 
-    section("EDAMAME fleet monitoring E2E")
+    section("EDAMAME fleet monitoring E2E (REAL agents)")
     log(f"Agents: {', '.join(a['agent_type'] for a in agents)}")
     log(f"Platform: {platform.system()}  Workspace: {workspace}")
     log(f"edamame_cli: {os.environ.get('EDAMAME_CLI', '(auto)')}")
+    log(f"claude CLI: {cli_path('claude') or '(absent)'}  ANTHROPIC_API_KEY={'set' if os.environ.get('ANTHROPIC_API_KEY') else 'unset'}")
+    log(f"codex CLI:  {cli_path('codex') or '(absent)'}  OPENAI_API_KEY={'set' if os.environ.get('OPENAI_API_KEY') else 'unset'}")
 
-    # Sanity: the core must be reachable before we start.
     try:
         observer_status()
     except Exception as exc:  # noqa: BLE001
@@ -534,6 +747,7 @@ def main() -> int:
         return 1
 
     results: dict[str, dict] = {}
+    driven_detected: list[str] = []
 
     for agent in agents:
         agent_type = agent["agent_type"]
@@ -541,11 +755,18 @@ def main() -> int:
         section(f"Agent: {agent_type}  ({agent['display_name']})")
         log(f"Repo: {repo_path}")
 
-        res = {"install": None, "detected": None, "unsecured": None, "intent": None, "notes": []}
+        res = {
+            "install": None,
+            "real": None,       # True driven; False drive-failed; None skipped
+            "detected": None,
+            "unsecured": None,
+            "skip_reason": None,
+            "notes": [],
+        }
         results[agent_type] = res
 
         if not repo_path.is_dir():
-            log(f"FAIL: repo not found at {repo_path} (set {((agent.get('e2e') or {}).get('repo_env_var')) or 'the repo env var'})")
+            log(f"FAIL: repo not found at {repo_path}")
             res["install"] = False
             res["notes"].append("repo missing")
             continue
@@ -556,62 +777,82 @@ def main() -> int:
             log(f"WARN: could not resolve install paths: {exc}")
             paths = {}
 
-        if args.skip_install:
-            log("--- Skipping install/intent (--skip-install) ---")
-            res["install"] = True
-        else:
-            log("--- Install ---")
-            rc = install_agent(agent, repo_path, workspace)
-            res["install"] = rc == 0
-            if rc != 0:
+        can_drive, reason = real_driver_available(agent_type)
+
+        log("--- Install plugin ---")
+        rc = install_agent(agent, repo_path, workspace)
+        res["install"] = rc == 0
+        if rc != 0:
+            if can_drive:
                 log(f"FAIL: install returned {rc}")
                 res["notes"].append("install failed")
                 continue
+            log(f"  WARN: install returned {rc} (skip agent; non-gating)")
+        else:
             log("  install OK")
-
             psk_file = write_psk(paths, psk)
             if psk_file:
                 log(f"  PSK written: {psk_file}")
 
-            log("--- Intent (LLM behavioral-model push; SOFT) ---")
-            rc = run_intent(agent, repo_path)
-            res["intent"] = rc == 0
-            if rc != 0:
-                log(f"  WARN: intent leg returned {rc} (non-fatal; native transcripts still written for discovery)")
+        if not can_drive:
+            log(f"--- SKIP real drive + detection: {reason} ---")
+            res["skip_reason"] = reason
+            continue
 
-        log("--- Observer detection ---")
-        detected, row = verify_detection(agent_type, observer_row(agent_type))
+        log("--- Drive REAL agent (genuine transcripts) ---")
+        ok_drive, _ws = drive_real_agent_normal(agent_type, args.drive_timeout)
+        res["real"] = ok_drive
+
+        log("--- Observer detection (real transcripts; no seeding) ---")
+        detected, row = verify_detection(agent_type)
         res["detected"] = detected
         if row is not None:
             res["notes"].append(
-                f"discovered={row.get('discovered')} sessions={row.get('last_session_count')} "
-                f"roots={row.get('last_transcripts_roots')}"
+                f"discovered={row.get('discovered')} sessions={row.get('last_session_count')}"
             )
         if detected:
             log(f"  OK: {agent_type} discovered (sessions={row.get('last_session_count') if row else '?'})")
+            driven_detected.append(agent_type)
         else:
-            log(f"  FAIL: {agent_type} not discovered by observer")
+            log(f"  FAIL: {agent_type} not discovered by observer after real drive")
             continue
 
-        log("--- Unsecured threat toggle ---")
+        log("--- Unsecured threat toggle (SOFT) ---")
         ok, detail = verify_unsecured_toggle(agent_type, score_wait)
         res["unsecured"] = ok
         if ok:
             log(f"  OK: unsecured_{agent_type} toggles correctly ({detail})")
         else:
-            log(f"  FAIL: unsecured_{agent_type} did not toggle ({detail})")
+            log(f"  WARN: unsecured_{agent_type} did not toggle ({detail})")
 
-    # ── Fleet-wide legs ───────────────────────────────────────────────
+    # ── Real-coverage floor ───────────────────────────────────────────
+    section("Real-coverage floor")
+    if driven_detected:
+        log(f"PASS: real agents driven AND detected: {', '.join(driven_detected)}")
+        floor_ok = True
+    else:
+        log("FAIL: no real agent was driven and detected on this platform.")
+        log("      (claude_code needs ANTHROPIC_API_KEY + claude CLI; codex needs OPENAI_API_KEY + codex CLI.)")
+        floor_ok = False
+
+    # ── Divergence (real model + real-agent-driven egress) ─────────────
     divergence_ok = None
     if not args.skip_divergence:
-        section(f"Divergence verdict (representative agent: {args.representative_agent})")
-        triggers_dir = HERE / "triggers"
-        try:
-            divergence_ok, detail = run_divergence(args.representative_agent, triggers_dir)
-        except Exception as exc:  # noqa: BLE001
-            divergence_ok, detail = False, f"exception: {exc}"
-        log(("PASS: " if divergence_ok else "FAIL: ") + f"divergence -- {detail}")
+        representative = "claude_code" if "claude_code" in driven_detected else (
+            "codex" if "codex" in driven_detected else None
+        )
+        section(f"Divergence verdict (real model, representative: {representative or 'NONE'})")
+        if representative is None:
+            log("FAIL: no driven real agent available for the divergence leg")
+            divergence_ok = False
+        else:
+            try:
+                divergence_ok, detail = run_real_divergence(representative, args.drive_timeout)
+            except Exception as exc:  # noqa: BLE001
+                divergence_ok, detail = False, f"exception: {exc}"
+            log(("PASS: " if divergence_ok else "FAIL: ") + f"divergence -- {detail}")
 
+    # ── Blast radius ───────────────────────────────────────────────────
     blast_ok = None
     if not args.skip_blast_radius:
         section("Host blast radius")
@@ -624,46 +865,48 @@ def main() -> int:
     # ── Summary ───────────────────────────────────────────────────────
     section("Fleet monitoring summary")
     hard_failures = 0
-    log(f"{'agent':<16} {'install':<9} {'detected':<10} {'unsecured':<11} {'intent':<8}")
-    log("-" * 60)
+    soft_warnings = 0
+    log(f"{'agent':<16} {'install':<9} {'real':<7} {'detected':<10} {'unsecured':<11} {'note'}")
+    log("-" * 78)
 
     def cell(v):
         if v is None:
             return "-"
         return "OK" if v else "FAIL"
 
-    soft_warnings = 0
     for agent_type, res in results.items():
+        note = res["skip_reason"] or (res["notes"][0] if res["notes"] else "")
         log(
-            f"{agent_type:<16} {cell(res['install']):<9} {cell(res['detected']):<10} "
-            f"{cell(res['unsecured']):<11} {cell(res['intent']):<8}"
+            f"{agent_type:<16} {cell(res['install']):<9} {cell(res['real']):<7} "
+            f"{cell(res['detected']):<10} {cell(res['unsecured']):<11} {note}"
         )
-        for note in res["notes"]:
-            log(f"    {note}")
-        # HARD: install, observer detection (non-openclaw). SOFT: unsecured
-        # toggle, openclaw detection, intent. The openclaw passive-discovery
-        # fixture is not seeded by the generic path (the divergence leg
-        # exercises openclaw end-to-end), and unsecured_<agent>
-        # activation-on-pause is not yet consistent cross-platform.
-        if res["install"] is False:
-            hard_failures += 1
-        if res["detected"] is False:
-            if agent_type == "openclaw":
-                soft_warnings += 1
-            else:
+        is_skip = agent_type in SKIP_REASONS or res["skip_reason"] is not None
+        # HARD: install + real drive + detection for real-driver agents.
+        if not is_skip:
+            if res["install"] is False:
                 hard_failures += 1
+            if res["real"] is False:
+                hard_failures += 1
+            if res["detected"] is False:
+                hard_failures += 1
+        else:
+            if res["install"] is False:
+                soft_warnings += 1
         if res["unsecured"] is False:
             soft_warnings += 1
 
     log("")
-    log(f"divergence:   {cell(divergence_ok)}")
-    log(f"blast radius: {cell(blast_ok)}")
+    log(f"real-coverage floor: {cell(floor_ok)}")
+    log(f"divergence:          {cell(divergence_ok)}")
+    log(f"blast radius:        {cell(blast_ok)}")
+    if floor_ok is False:
+        hard_failures += 1
     if divergence_ok is False:
         hard_failures += 1
     if blast_ok is False:
         hard_failures += 1
     if soft_warnings:
-        log(f"soft warnings: {soft_warnings} (non-gating: unsecured toggle / openclaw passive discovery)")
+        log(f"soft warnings: {soft_warnings} (non-gating: unsecured toggle / skip-agent install)")
 
     log("")
     if hard_failures:

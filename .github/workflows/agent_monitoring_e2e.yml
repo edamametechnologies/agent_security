@@ -1,24 +1,40 @@
 name: Agent fleet monitoring E2E
 
-# Consolidated, multi-platform proof that EDAMAME monitors the whole
-# supported agent fleet (Cursor, Claude Code, Claude Desktop, Codex,
-# Hermes, OpenClaw). On each of macOS / Windows / Linux it:
+# Consolidated, multi-platform proof that EDAMAME monitors the whole supported
+# agent fleet (Cursor, Claude Code, Claude Desktop, Codex, Hermes, OpenClaw)
+# using REAL agents -- NO synthetic transcripts, no seeded observer roots, no
+# hand-crafted behavioral models.
+#
+# On each of macOS / Windows / Linux it:
 #   1. installs every plugin from its checked-out repo,
-#   2. bootstraps activity via each plugin's intent injector,
-#   3. verifies EDAMAME's host-side transcript observer DISCOVERS each agent,
-#   4. verifies pausing an agent's observer raises its unsecured_<agent> threat,
-#   5. drives a divergence scenario to a DIVERGENCE verdict, and
+#   2. installs the real agent CLIs (claude, codex) and DRIVES them headlessly
+#      with real provider keys, producing genuine on-disk transcripts,
+#   3. verifies EDAMAME's host-side transcript observer DISCOVERS each driven
+#      agent from its real transcripts,
+#   4. verifies pausing a driven agent's observer raises its unsecured_<agent>
+#      threat (soft),
+#   5. builds a REAL behavioral model from a driven agent, then drives a genuine
+#      divergent egress THROUGH that agent and asserts a DIVERGENCE verdict, and
 #   6. asserts the host blast-radius surface.
 #
-# This workflow gates the EDAMAME release: edamame_app/release_all.sh lists
-# it in AGENT_PLUGIN_E2E_WORKFLOWS, so a red run blocks the release. Hard
-# failures: per-agent install, non-openclaw observer detection, and the
-# fleet-wide divergence + blast-radius legs. Soft (warn only): the unsecured_
-# <agent> toggle (cross-platform activation-on-pause not yet consistent),
-# openclaw passive discovery (its ~/.openclaw/agents/<id> fixture is not seeded
-# by the generic path; the divergence leg exercises openclaw end-to-end), and
-# the LLM-backed intent push. All cross-agent orchestration lives in
-# tests/e2e/run_fleet_monitoring.py.
+# Real-coverage floor (HARD): at least one real-driver agent (claude_code or
+# codex) MUST be installed, driven, and detected. A green run made only of skips
+# would be indistinguishable from the old synthetic gate and is rejected.
+#
+# Agents that cannot be driven headlessly in hosted CI (cursor, claude_desktop,
+# hermes, openclaw) are SKIPPED with an explicit logged reason -- never faked.
+#
+# The divergence leg requires the agent's persistent shell to be bash (its
+# /dev/udp egress is what lands the session in the model's parent scope), so it
+# runs only on Linux; macOS / Windows still do real install + drive + detection
+# + blast radius.
+#
+# This workflow gates the EDAMAME release: edamame_app/release_all.sh lists it in
+# AGENT_PLUGIN_E2E_WORKFLOWS, so a red run blocks the release. Hard failures:
+# real-driver-agent install + real drive + observer detection, the real-coverage
+# floor, and the fleet-wide divergence (Linux) + blast-radius legs. Soft (warn
+# only): the unsecured_<agent> toggle and skip-agent install. All cross-agent
+# orchestration lives in tests/e2e/run_fleet_monitoring.py.
 
 on:
   push:
@@ -42,12 +58,8 @@ on:
         description: 'CSV of agent_types to run (empty = all in registry)'
         required: false
         default: ''
-      representative_agent:
-        description: 'Agent type used for the divergence leg'
-        required: false
-        default: 'openclaw'
       skip_divergence:
-        description: 'Skip the divergence leg'
+        description: 'Force-skip the divergence leg (it already auto-skips off Linux)'
         type: boolean
         required: false
         default: false
@@ -136,6 +148,24 @@ jobs:
         with:
           node-version: 22
 
+      # ── Real agent CLIs (no synthetic transcripts -- these produce them) ─
+      # claude_code and codex are the two headlessly-drivable agents. Install
+      # both on every OS so the real-coverage floor can be met on each leg
+      # (the driver self-selects whichever it can actually drive + detect).
+      - name: Install real agent CLIs (claude, codex)
+        shell: bash
+        run: |
+          set -x
+          npm install -g @anthropic-ai/claude-code @openai/codex || true
+          echo "--- versions ---"
+          command -v claude  >/dev/null 2>&1 && claude --version || echo "claude CLI not on PATH"
+          command -v codex   >/dev/null 2>&1 && codex --version  || echo "codex CLI not on PATH"
+          # Make the global npm bin resolvable under sudo on Linux (the driver
+          # runs as root with a forwarded PATH; the daemon observer is root too).
+          NPM_BIN="$(npm prefix -g)/bin"
+          echo "npm global bin: $NPM_BIN"
+          [ -d "$NPM_BIN" ] && echo "$NPM_BIN" >> "$GITHUB_PATH" || true
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -222,8 +252,10 @@ jobs:
           CODEX_REPO: ${{ github.workspace }}/edamame_codex
           HERMES_REPO: ${{ github.workspace }}/edamame_hermes
           OPENCLAW_REPO: ${{ github.workspace }}/edamame_openclaw
-          FLEET_REPRESENTATIVE: ${{ github.event.inputs.representative_agent || 'openclaw' }}
-          FLEET_SKIP_DIVERGENCE: ${{ (github.event.inputs.skip_divergence == 'true') && '1' || '' }}
+          # The divergence leg drives a real /dev/udp egress through the agent's
+          # persistent bash shell, which only exists on Linux. Off Linux we still
+          # do real install + drive + detection + blast radius, just not divergence.
+          FLEET_SKIP_DIVERGENCE: ${{ (github.event.inputs.skip_divergence == 'true' || runner.os != 'Linux') && '1' || '' }}
           EDAMAME_AGENTS: ${{ github.event.inputs.agents || '' }}
         run: |
           PY=python3
