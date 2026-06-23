@@ -1,40 +1,50 @@
 name: Agent fleet monitoring E2E
 
-# Consolidated, multi-platform proof that EDAMAME monitors the whole supported
-# agent fleet (Cursor, Claude Code, Claude Desktop, Codex, Hermes, OpenClaw)
-# using REAL agents -- NO synthetic transcripts, no seeded observer roots, no
-# hand-crafted behavioral models.
+# Consolidated, multi-platform proof that EDAMAME's HOST-SIDE transcript observer
+# (Level 1) monitors the supported agent fleet (Claude Code, Codex, Hermes,
+# OpenClaw, Claude Desktop) using REAL agents and WITHOUT any EDAMAME plugin --
+# NO synthetic transcripts, no seeded observer roots, no hand-crafted models.
+#
+# EDAMAME plugins are OUT OF SCOPE here. The plugins (the edamame_<agent> Node
+# bridges) are the OPTIONAL Level-2 layer and are exercised by each plugin repo's
+# own test_e2e.yml. This workflow checks out NO plugin repo, installs NO plugin,
+# and starts NO MCP server -- it proves the plugin-free host-resident path.
 #
 # On each of macOS / Windows / Linux it:
-#   1. installs every plugin from its checked-out repo,
-#   2. installs the real agent CLIs (claude, codex) and DRIVES them headlessly
-#      with real provider keys, producing genuine on-disk transcripts,
-#   3. verifies EDAMAME's host-side transcript observer DISCOVERS each driven
+#   1. installs/drives the real agent products headlessly with real provider keys
+#      (claude, codex via npm; hermes via its headless install.sh; openclaw via
+#      npm), producing genuine on-disk transcripts,
+#   2. verifies EDAMAME's host-side transcript observer DISCOVERS each driven
 #      agent from its real transcripts,
-#   4. verifies pausing a driven agent's observer raises its unsecured_<agent>
+#   3. verifies pausing a driven agent's observer raises its unsecured_<agent>
 #      threat (soft),
-#   5. builds a REAL behavioral model from a driven agent, then drives a genuine
+#   4. builds a REAL behavioral model from a driven agent, then drives a genuine
 #      divergent egress THROUGH that agent and asserts a DIVERGENCE verdict, and
-#   6. asserts the host blast-radius surface.
+#   5. asserts the host blast-radius surface.
 #
-# Real-coverage floor (HARD): at least one real-driver agent (claude_code or
-# codex) MUST be installed, driven, and detected. A green run made only of skips
-# would be indistinguishable from the old synthetic gate and is rejected.
+# Per-agent gating:
+#   - claude_code / codex / hermes / openclaw : HARD (real drive + detection).
+#     A HARD agent is SKIPPED (non-gating) only where there is no OS installer
+#     (hermes has no Windows installer; the rest run everywhere) or no key.
+#   - claude_desktop : BEST-EFFORT (GUI app, no headless drive CLI) -- attempted
+#     and reported honestly, never faked, never gating.
+#   - cursor : SKIP (GUI IDE; no headless agent CLI wired in hosted CI).
 #
-# Agents that cannot be driven headlessly in hosted CI (cursor, claude_desktop,
-# hermes, openclaw) are SKIPPED with an explicit logged reason -- never faked.
+# Real-coverage floor (HARD): at least one HARD agent MUST be driven and detected
+# on each leg. A green run made only of skips would be indistinguishable from the
+# old synthetic gate and is rejected.
 #
 # The divergence leg requires the agent's persistent shell to be bash (its
 # builtin /dev/tcp connectivity check is what lands the session in the model's
-# parent scope), so it runs only on Linux; macOS / Windows still do real install
-# + drive + detection + blast radius.
+# parent scope), so it runs only on Linux; macOS / Windows still do real drive +
+# detection + blast radius.
 #
 # This workflow gates the EDAMAME release: edamame_app/release_all.sh lists it in
 # AGENT_PLUGIN_E2E_WORKFLOWS, so a red run blocks the release. Hard failures:
-# real-driver-agent install + real drive + observer detection, the real-coverage
-# floor, and the fleet-wide divergence (Linux) + blast-radius legs. Soft (warn
-# only): the unsecured_<agent> toggle and skip-agent install. All cross-agent
-# orchestration lives in tests/e2e/run_fleet_monitoring.py.
+# attempted-HARD-agent real drive + observer detection, the real-coverage floor,
+# and the fleet-wide divergence (Linux) + blast-radius legs. Soft (warn only):
+# the unsecured_<agent> toggle. All cross-agent orchestration lives in
+# tests/e2e/run_fleet_monitoring.py.
 
 on:
   push:
@@ -80,47 +90,12 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
-      # ── Checkout agent_security + all six plugin repos as siblings ─────
+      # ── Checkout agent_security only (NO plugin repos: plugins are tested
+      #    in their own per-repo test_e2e.yml; this gate is plugin-free) ────
       - name: Checkout agent_security
         uses: actions/checkout@v4
         with:
           path: agent_security
-
-      - name: Checkout edamame_cursor
-        uses: actions/checkout@v4
-        with:
-          repository: edamametechnologies/edamame_cursor
-          path: edamame_cursor
-
-      - name: Checkout edamame_claude_code
-        uses: actions/checkout@v4
-        with:
-          repository: edamametechnologies/edamame_claude_code
-          path: edamame_claude_code
-
-      - name: Checkout edamame_claude_desktop
-        uses: actions/checkout@v4
-        with:
-          repository: edamametechnologies/edamame_claude_desktop
-          path: edamame_claude_desktop
-
-      - name: Checkout edamame_codex
-        uses: actions/checkout@v4
-        with:
-          repository: edamametechnologies/edamame_codex
-          path: edamame_codex
-
-      - name: Checkout edamame_hermes
-        uses: actions/checkout@v4
-        with:
-          repository: edamametechnologies/edamame_hermes
-          path: edamame_hermes
-
-      - name: Checkout edamame_openclaw
-        uses: actions/checkout@v4
-        with:
-          repository: edamametechnologies/edamame_openclaw
-          path: edamame_openclaw
 
       # ── EDAMAME Posture daemon (connected + packet capture) ────────────
       # Connected so the runner IP is lifted and the edamame_cli install
@@ -148,18 +123,32 @@ jobs:
         with:
           node-version: 22
 
-      # ── Real agent CLIs (no synthetic transcripts -- these produce them) ─
-      # claude_code and codex are the two headlessly-drivable agents. Install
-      # both on every OS so the real-coverage floor can be met on each leg
-      # (the driver self-selects whichever it can actually drive + detect).
-      - name: Install real agent CLIs (claude, codex)
+      # ── xz: Hermes' headless install.sh decompresses an .xz tarball ─────
+      - name: Install xz (Hermes prerequisite)
         shell: bash
         run: |
           set -x
-          npm install -g @anthropic-ai/claude-code @openai/codex || true
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo apt-get update -y && sudo apt-get install -y xz-utils || true
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            brew install xz || true
+          fi
+          command -v xz >/dev/null 2>&1 && xz --version | head -n1 || echo "xz not on PATH"
+
+      # ── Real agent CLIs (no synthetic transcripts -- these produce them) ─
+      # claude_code, codex and openclaw are npm-installable everywhere; hermes
+      # self-installs via its install.sh from the driver (Linux/macOS only).
+      # Install the npm ones on every OS so the real-coverage floor can be met
+      # on each leg (the driver self-selects whichever it can drive + detect).
+      - name: Install real agent CLIs (claude, codex, openclaw)
+        shell: bash
+        run: |
+          set -x
+          npm install -g @anthropic-ai/claude-code @openai/codex openclaw@latest || true
           echo "--- versions ---"
-          command -v claude  >/dev/null 2>&1 && claude --version || echo "claude CLI not on PATH"
-          command -v codex   >/dev/null 2>&1 && codex --version  || echo "codex CLI not on PATH"
+          command -v claude   >/dev/null 2>&1 && claude --version   || echo "claude CLI not on PATH"
+          command -v codex    >/dev/null 2>&1 && codex --version    || echo "codex CLI not on PATH"
+          command -v openclaw >/dev/null 2>&1 && openclaw --version || echo "openclaw CLI not on PATH"
           # Make the global npm bin resolvable under sudo on Linux (the driver
           # runs as root with a forwarded PATH; the daemon observer is root too).
           NPM_BIN="$(npm prefix -g)/bin"
@@ -179,41 +168,6 @@ jobs:
           echo "C:\msys64\mingw64\bin" >> "$GITHUB_PATH"
           /c/msys64/mingw64/bin/gcc.exe --version
           echo "CC=C:\msys64\mingw64\bin\gcc.exe" >> "$GITHUB_ENV"
-
-      # ── PSK + MCP server (intent push target) ──────────────────────────
-      - name: Generate PSK and start MCP server
-        shell: bash
-        run: |
-          PSK=$("$EDAMAME_POSTURE" mcp-generate-psk 2>&1 | head -n1) || true
-          if [ -z "$PSK" ] || [ ${#PSK} -lt 32 ]; then
-            PSK=$(sudo "$EDAMAME_POSTURE" mcp-generate-psk 2>&1 | head -n1) || true
-          fi
-          if [ -z "$PSK" ] || [ ${#PSK} -lt 32 ]; then
-            echo "FAIL: could not generate PSK (got: '$PSK')"
-            exit 1
-          fi
-          echo "::add-mask::$PSK"
-          echo "EDAMAME_PSK=$PSK" >> "$GITHUB_ENV"
-          echo "PSK generated (${#PSK} chars)"
-
-          echo "--- Starting MCP server with PSK ---"
-          MCP_CMD="$EDAMAME_POSTURE"
-          if [ "$RUNNER_OS" != "Windows" ]; then
-            MCP_CMD="sudo $EDAMAME_POSTURE"
-          fi
-          for attempt in 1 2 3 4 5; do
-            $MCP_CMD mcp-stop 2>/dev/null || true
-            sleep 3
-            if $MCP_CMD mcp-start 3000 "$PSK" 2>&1; then
-              echo "MCP server started on port 3000"
-              break
-            fi
-            echo "MCP start attempt $attempt/5 failed, retrying..."
-            if [ "$attempt" -eq 5 ]; then
-              echo "FAIL: could not start MCP server after 5 attempts"
-              exit 1
-            fi
-          done
 
       - name: Install edamame_cli
         shell: bash
@@ -241,17 +195,10 @@ jobs:
         working-directory: agent_security
         env:
           EDAMAME_CLI: ${{ env.EDAMAME_CLI }}
-          EDAMAME_MCP_PSK: ${{ env.EDAMAME_PSK }}
           EDAMAME_LLM_API_KEY: ${{ secrets.EDAMAME_LLM_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GITHUB_RUN_ID: ${{ github.run_id }}
-          CURSOR_REPO: ${{ github.workspace }}/edamame_cursor
-          CLAUDE_REPO: ${{ github.workspace }}/edamame_claude_code
-          CLAUDE_DESKTOP_REPO: ${{ github.workspace }}/edamame_claude_desktop
-          CODEX_REPO: ${{ github.workspace }}/edamame_codex
-          HERMES_REPO: ${{ github.workspace }}/edamame_hermes
-          OPENCLAW_REPO: ${{ github.workspace }}/edamame_openclaw
           # The divergence leg drives a real /dev/tcp connectivity check through the
           # agent's persistent bash shell, which only exists on Linux. Off Linux we
           # still do real install + drive + detection + blast radius, not divergence.
@@ -263,10 +210,10 @@ jobs:
           if [ "$RUNNER_OS" = "Linux" ]; then
             # The posture daemon runs as root for packet capture, so its
             # transcript observer resolves agent roots under /root. Run the
-            # driver (installs + PSK seeding + edamame_cli) as root with
-            # HOME=/root so the installed agents land where the daemon looks.
-            # PATH is forwarded so the node/python toolchains stay resolvable
-            # under sudo's secure_path.
+            # driver as root with HOME=/root so the agents it drives/self-installs
+            # land where the daemon looks. PATH is forwarded so the node/python
+            # toolchains (and the npm-global agent CLIs) stay resolvable under
+            # sudo's secure_path.
             PYBIN=$(command -v "$PY")
             sudo -E env "PATH=$PATH" "HOME=/root" "$PYBIN" tests/e2e/run_fleet_monitoring.py
           else

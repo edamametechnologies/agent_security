@@ -2,38 +2,49 @@
 """
 Consolidated fleet monitoring E2E driver (REAL agents only).
 
-Installs every supported EDAMAME agent plugin from its checked-out repo, then
--- for every agent whose real product can be driven headlessly in this CI
-environment -- installs and DRIVES the real agent CLI with a real API key,
-producing genuine transcripts on disk. It then verifies that EDAMAME's
-host-side transcript observer detects each driven agent, that pausing an
-agent's observer raises its `unsecured_<agent>` internal threat, and (on one
-representative real agent) that driving a genuine divergent egress THROUGH the
-agent flips the divergence engine to a DIVERGENCE verdict against the model
-EDAMAME built from that agent's own real activity. Finally it asserts the host
-blast-radius surface.
+This gate proves EDAMAME's HOST-SIDE transcript observer (Level 1) monitors real
+agents WITHOUT any EDAMAME plugin installed. For every agent whose real product
+can be driven headlessly in this CI environment it installs (where needed) and
+DRIVES the real agent CLI with a real API key, producing genuine transcripts on
+disk. It then verifies EDAMAME's host-side observer detects each driven agent,
+that pausing an agent's observer raises its `unsecured_<agent>` internal threat,
+and (on one representative real agent) that driving a genuine divergent egress
+THROUGH the agent flips the divergence engine to a DIVERGENCE verdict against the
+model EDAMAME built from that agent's own real activity. Finally it asserts the
+host blast-radius surface.
+
+EDAMAME plugins are OUT OF SCOPE here. The plugins (the edamame_<agent> Node
+bridges) are an OPTIONAL Level-2 layer; they are exercised by each plugin repo's
+own `test_e2e.yml`. This workflow installs NO plugin, checks out NO plugin repo,
+and needs NO MCP server -- it tests the plugin-free host-resident observer path.
 
 NO SYNTHETIC INJECTION. This driver never writes fake transcripts, never seeds
 observer roots, and never hand-crafts a behavioral model. Every behavioral
 model is produced by EDAMAME's LLM pipeline from real agent activity, and the
 divergent stimulus is emitted by a process the real agent itself spawned.
 
-Agents that genuinely cannot be driven headlessly in hosted CI are SKIPPED with
-an explicit, logged reason (never silently faked):
-  - cursor          GUI IDE; no headless agent CLI + key wired in hosted CI
-  - claude_desktop  GUI-only desktop app; cannot run headless
-  - hermes          no headless runtime installable in hosted CI
-  - openclaw        off-host agent (Lima VM); not host-resident in hosted CI
+Agent coverage:
+  - claude_code   HARD  real drive (claude CLI + ANTHROPIC_API_KEY)
+  - codex         HARD  real drive (codex CLI + OPENAI_API_KEY)
+  - hermes        HARD  real drive (self-installs headless; ANTHROPIC_API_KEY).
+                        Skipped (non-gating) only where there is no OS installer
+                        (the install.sh supports Linux/macOS/Android, not Windows)
+  - openclaw      HARD  real drive (self-installs via npm; ANTHROPIC_API_KEY)
+  - claude_desktop BEST-EFFORT  GUI app, no supported headless drive CLI; we try
+                        and report honestly, never fabricate a transcript
+  - cursor        SKIP  GUI IDE; no headless agent CLI wired in hosted CI
 
-Real-coverage floor (HARD): at least one real-driver agent (claude_code or
-codex) MUST be installed, driven, and detected on this platform. If zero real
-agents are driven, the gate FAILS -- a green run with only skips would be
-indistinguishable from the old synthetic gate and is not acceptable.
+A HARD agent is gated on observer DETECTION once it has been attempted. A HARD
+agent with no OS installer/runtime or no provider key is SKIPPED (non-gating);
+the real-coverage floor below still rejects an all-skip green run.
+
+Real-coverage floor (HARD): at least one HARD agent MUST be driven and detected
+on this platform. A green run made only of skips would be indistinguishable from
+the old synthetic gate and is not acceptable.
 
 Per-agent verification levels:
-  - install            HARD for real-driver agents; SOFT for skip agents
-  - real drive         HARD for real-driver agents whose CLI + key are present
-  - observer detection HARD for driven agents; SKIP for skip agents
+  - real drive         HARD for HARD agents whose runtime + key are present
+  - observer detection HARD for driven HARD agents; non-gating for best-effort
   - unsecured toggle   SOFT (collected; cross-platform activation-on-pause is
                        not yet uniformly deterministic -- warn only)
 
@@ -43,22 +54,33 @@ Fleet-wide verification (run once):
 
 Prerequisites (set up by the calling workflow):
   - edamame_posture daemon running (disconnected mode + packet capture)
-  - MCP server started on 127.0.0.1:3000 with a PSK
   - edamame_cli installed and reachable (EDAMAME_CLI env var)
-  - each agent plugin repo checked out, with its <REPO_ENV_VAR> exported
-  - Node.js 18+, Python 3, and the real agent CLIs (claude, codex) on PATH
+  - Node.js 18+, Python 3, and the claude/codex CLIs on PATH (hermes/openclaw
+    are self-installed by this driver into the same uid/HOME the observer reads)
   - ANTHROPIC_API_KEY / OPENAI_API_KEY exported for the real drivers
 
 Environment:
   EDAMAME_CLI                 Path to edamame_cli binary (forwarded to children)
-  EDAMAME_MCP_PSK             Daemon MCP PSK (written into each agent's PSK file)
-  ANTHROPIC_API_KEY           Drives claude_code (real)
+  ANTHROPIC_API_KEY           Drives claude_code / hermes / openclaw (real)
   OPENAI_API_KEY              Drives codex (real)
   EDAMAME_AGENTS              Optional CSV of agent_types to restrict the run
   FLEET_SKIP_DIVERGENCE       If "1", skip the divergence leg
   FLEET_SKIP_BLAST_RADIUS     If "1", skip the blast-radius leg
   FLEET_SCORE_WAIT_SECS       Seconds to wait for score recompute (default 8)
   FLEET_DRIVE_TIMEOUT_SECS    Per real-agent normal-drive timeout (default 360)
+  HERMES_INSTALL_CMD          Override the hermes headless install command
+  HERMES_PROVIDER             hermes --provider (default "anthropic")
+  HERMES_MODEL                hermes --model (default: let hermes choose)
+  HERMES_CONFIG_SET           Optional `hermes config set <args>` (best-effort)
+  HERMES_DRIVE_EXTRA_ARGS     Extra args appended to `hermes chat`
+  OPENCLAW_NPM_PKG            npm package for openclaw (default "openclaw@latest")
+  OPENCLAW_AGENT              openclaw agent id to drive (default: autodetect)
+  OPENCLAW_MODEL              openclaw --model (default: onboarding default)
+  OPENCLAW_GATEWAY_PORT       openclaw onboarding gateway port (default 18789)
+  OPENCLAW_ONBOARD_EXTRA_ARGS Extra args appended to `openclaw onboard`
+  OPENCLAW_DRIVE_CMD          Full override template for the openclaw drive command
+                              (placeholders: {cli} {agent} {prompt} {model})
+  OPENCLAW_DRIVE_EXTRA_ARGS   Extra args appended to the default openclaw drive
   GITHUB_RUN_ID               Used in log context
 """
 
@@ -68,6 +90,7 @@ import argparse
 import json
 import os
 import platform
+import shlex
 import shutil
 import subprocess
 import sys
@@ -236,6 +259,14 @@ NORMAL_PROMPT = (
     "named SUMMARY.txt. Keep it brief and do not access the network."
 )
 
+# Lighter prompt for agents we only need to produce a real transcript from
+# (hermes / openclaw / claude_desktop). A single bounded reply still drives the
+# real product end to end and lands a genuine session the observer can ingest.
+NORMAL_PROMPT_SIMPLE = (
+    "Reply with exactly one short sentence confirming you are running, then "
+    "stop. Do not access the network."
+)
+
 # Divergent egress stimulus, emitted by the agent's OWN persistent shell.
 #
 # The divergence engine attributes a network session to the agent's model only
@@ -399,96 +430,262 @@ def drive_codex(workdir: Path, prompt: str, timeout: int, background: bool, log_
     return run_cmd(cmd, workdir, env, timeout)
 
 
-# agent_type -> (cli candidates, key env var, normal-drive fn, divergence-drive fn)
+def _augment_path(*dirs: str) -> None:
+    """Prepend existing dirs to PATH so a just-installed CLI becomes resolvable
+    in this process (and its children) without re-exec."""
+    parts = os.environ.get("PATH", "").split(os.pathsep)
+    changed = False
+    for raw in dirs:
+        if not raw:
+            continue
+        d = os.path.expanduser(raw)
+        if os.path.isdir(d) and d not in parts:
+            parts.insert(0, d)
+            changed = True
+    if changed:
+        os.environ["PATH"] = os.pathsep.join(parts)
+
+
+# Hermes (Nous Research) ships a headless installer for Linux/macOS/Android only.
+HERMES_INSTALL_SH = (
+    "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --skip-browser"
+)
+_HERMES_BIN_DIRS = ("~/.local/bin", "/usr/local/bin", "~/.hermes/bin")
+
+
+def ensure_hermes_installed() -> str | None:
+    """Headlessly install Hermes into THIS uid's HOME (so the observer, running as
+    the same uid, resolves ~/.hermes). Returns the resolved CLI path or None."""
+    _augment_path(*_HERMES_BIN_DIRS)
+    found = cli_path("hermes")
+    if found:
+        return found
+    if is_windows():
+        return None  # no Windows installer
+    install_cmd = os.environ.get("HERMES_INSTALL_CMD", HERMES_INSTALL_SH)
+    log("  installing Hermes (headless)")
+    run_cmd(["bash", "-lc", install_cmd], None, None, 1200)
+    _augment_path(*_HERMES_BIN_DIRS)
+    return cli_path("hermes")
+
+
+def drive_hermes(workdir: Path, prompt: str, timeout: int, background: bool, log_path: Path | None):
+    cli = ensure_hermes_installed()
+    if not cli:
+        return None
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        return None
+    hermes_home = Path(os.environ.get("HERMES_HOME") or (Path.home() / ".hermes"))
+    hermes_home.mkdir(parents=True, exist_ok=True)
+    # Hermes loads credentials from ~/.hermes/.env even with --ignore-user-config.
+    env_lines = [f"ANTHROPIC_API_KEY={key}"]
+    if os.environ.get("OPENAI_API_KEY"):
+        env_lines.append(f"OPENAI_API_KEY={os.environ['OPENAI_API_KEY']}")
+    (hermes_home / ".env").write_text("\n".join(env_lines) + "\n", encoding="utf-8")
+    env = {"ANTHROPIC_API_KEY": key, "HERMES_HOME": str(hermes_home)}
+    cfg = os.environ.get("HERMES_CONFIG_SET", "")
+    if cfg:  # best-effort: also leaves a config.yaml so ~/.hermes is discoverable
+        run_cmd([cli, "config", "set", *shlex.split(cfg)], workdir, env, 120)
+    provider = os.environ.get("HERMES_PROVIDER", "anthropic")
+    model = os.environ.get("HERMES_MODEL", "")
+    # `chat -q` persists a session under ~/.hermes (unlike `-z`, which suppresses it).
+    cmd = [cli, "chat", "-q", prompt]
+    if provider:
+        cmd += ["--provider", provider]
+    if model:
+        cmd += ["--model", model]
+    extra = os.environ.get("HERMES_DRIVE_EXTRA_ARGS", "")
+    if extra:
+        cmd += shlex.split(extra)
+    if background:
+        assert log_path is not None
+        return popen_cmd(cmd, workdir, env, log_path)
+    return run_cmd(cmd, workdir, env, timeout)
+
+
+_OPENCLAW_ONBOARDED = {"done": False}
+
+
+def ensure_openclaw_installed() -> str | None:
+    found = cli_path("openclaw")
+    if found:
+        return found
+    pkg = os.environ.get("OPENCLAW_NPM_PKG", "openclaw@latest")
+    log("  installing OpenClaw CLI (npm -g)")
+    run_cmd(["npm", "install", "-g", pkg], None, None, 900)
+    try:
+        r = subprocess.run(["npm", "prefix", "-g"], capture_output=True, text=True, timeout=60)
+        if r.returncode == 0 and r.stdout.strip():
+            _augment_path(str(Path(r.stdout.strip()) / "bin"), r.stdout.strip())
+    except Exception:  # noqa: BLE001
+        pass
+    return cli_path("openclaw")
+
+
+def _openclaw_agent_name() -> str:
+    override = os.environ.get("OPENCLAW_AGENT", "")
+    if override:
+        return override
+    agents_dir = Path.home() / ".openclaw" / "agents"
+    if agents_dir.is_dir():
+        for cand in ("main", "default"):
+            if (agents_dir / cand).is_dir():
+                return cand
+        subs = sorted(p.name for p in agents_dir.iterdir() if p.is_dir())
+        if subs:
+            return subs[0]
+    return "main"
+
+
+def _openclaw_onboard(cli: str, key: str, workdir: Path) -> None:
+    if _OPENCLAW_ONBOARDED["done"] or os.environ.get("OPENCLAW_SKIP_ONBOARD") == "1":
+        return
+    args = [
+        cli, "onboard", "--non-interactive", "--mode", "local",
+        "--auth-choice", "apiKey", "--anthropic-api-key", key,
+        "--secret-input-mode", "plaintext",
+        "--gateway-port", os.environ.get("OPENCLAW_GATEWAY_PORT", "18789"),
+        "--gateway-bind", "loopback",
+        "--skip-skills", "--skip-bootstrap", "--accept-risk",
+    ]
+    extra = os.environ.get("OPENCLAW_ONBOARD_EXTRA_ARGS", "")
+    if extra:
+        args += shlex.split(extra)
+    # Tolerate a non-zero/timeout onboarding; the drive below is the real gate.
+    run_cmd(args, workdir, {"ANTHROPIC_API_KEY": key}, 300)
+    _OPENCLAW_ONBOARDED["done"] = True
+
+
+def drive_openclaw(workdir: Path, prompt: str, timeout: int, background: bool, log_path: Path | None):
+    cli = ensure_openclaw_installed()
+    if not cli:
+        return None
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not key:
+        return None
+    _openclaw_onboard(cli, key, workdir)
+    agent = _openclaw_agent_name()
+    model = os.environ.get("OPENCLAW_MODEL", "")
+    tmpl = os.environ.get("OPENCLAW_DRIVE_CMD", "")
+    if tmpl:
+        cmd = shlex.split(tmpl.format(cli=cli, agent=agent, prompt=prompt, model=model))
+    else:
+        cmd = [cli, "agent", "--agent", agent, "--message", prompt, "--local"]
+        if model:
+            cmd += ["--model", model]
+        extra = os.environ.get("OPENCLAW_DRIVE_EXTRA_ARGS", "")
+        if extra:
+            cmd += shlex.split(extra)
+    env = {"ANTHROPIC_API_KEY": key}
+    if background:
+        assert log_path is not None
+        return popen_cmd(cmd, workdir, env, log_path)
+    return run_cmd(cmd, workdir, env, timeout)
+
+
+def drive_claude_desktop(workdir: Path, prompt: str, timeout: int, background: bool, log_path: Path | None):
+    # Claude Desktop is a GUI app with NO supported headless drive CLI. We do not
+    # fabricate a transcript. Best-effort + non-gating: if a local-agent-mode
+    # transcript root already exists on the box the observer will discover it;
+    # otherwise this honestly reports "no headless drive available".
+    log("  claude_desktop: no headless drive CLI (GUI app) -- best-effort, non-gating")
+    return None
+
+
+# agent_type -> driver spec. `gate` is "hard" (gated on detection once attempted)
+# or "best_effort" (never gating). `self_install` drivers install their own CLI,
+# so a missing CLI on PATH is not a skip reason.
 REAL_DRIVERS = {
     "claude_code": {
         "cli": ["claude"],
         "key_env": "ANTHROPIC_API_KEY",
         "drive": drive_claude_code,
+        "gate": "hard",
+        "prompt": NORMAL_PROMPT,
     },
     "codex": {
         "cli": ["codex"],
         "key_env": "OPENAI_API_KEY",
         "drive": drive_codex,
+        "gate": "hard",
+        "prompt": NORMAL_PROMPT,
+    },
+    "hermes": {
+        "cli": ["hermes"],
+        "key_env": "ANTHROPIC_API_KEY",
+        "drive": drive_hermes,
+        "gate": "hard",
+        "self_install": True,
+        "prompt": NORMAL_PROMPT_SIMPLE,
+    },
+    "openclaw": {
+        "cli": ["openclaw"],
+        "key_env": "ANTHROPIC_API_KEY",
+        "drive": drive_openclaw,
+        "gate": "hard",
+        "self_install": True,
+        "prompt": NORMAL_PROMPT_SIMPLE,
+    },
+    "claude_desktop": {
+        "cli": [],
+        "key_env": "ANTHROPIC_API_KEY",
+        "drive": drive_claude_desktop,
+        "gate": "best_effort",
+        "prompt": NORMAL_PROMPT_SIMPLE,
     },
 }
 
+# Agents with no real driver at all in hosted CI -> non-gating skip.
 SKIP_REASONS = {
     "cursor": "GUI IDE; no headless Cursor agent CLI + CURSOR_API_KEY wired in hosted CI",
-    "claude_desktop": "GUI-only desktop app; cannot run headless in hosted CI",
-    "hermes": "no headless Hermes runtime installable in hosted CI",
-    "openclaw": "off-host agent (Lima VM); not host-resident in hosted CI",
 }
+
+# Per-agent OSes with no headless installer/runtime -> non-gating skip even for a
+# HARD agent ("skip only if no OS installer"). Hermes' install.sh is
+# Linux/macOS/Android only; openclaw (npm) and codex/claude (npm) run everywhere.
+NO_INSTALLER = {
+    "hermes": {"windows"},
+}
+
+
+def host_os() -> str:
+    if is_windows():
+        return "windows"
+    if platform.system() == "Darwin":
+        return "macos"
+    return "linux"
+
+
+def gate_class(agent_type: str) -> str:
+    spec = REAL_DRIVERS.get(agent_type)
+    return spec["gate"] if spec else "skip"
 
 
 def real_driver_available(agent_type: str) -> tuple[bool, str]:
     spec = REAL_DRIVERS.get(agent_type)
     if not spec:
         return False, SKIP_REASONS.get(agent_type, "no real driver for this agent in hosted CI")
-    if not cli_path(*spec["cli"]):
+    osn = host_os()
+    if osn in NO_INSTALLER.get(agent_type, set()):
+        return False, f"no headless {agent_type} installer/runtime for {osn} in hosted CI"
+    # Self-installing drivers install their own CLI, so a missing binary is fine.
+    if not spec.get("self_install") and spec["cli"] and not cli_path(*spec["cli"]):
         return False, f"{spec['cli'][0]} CLI not on PATH (agent runtime not installed)"
-    if not os.environ.get(spec["key_env"], ""):
-        return False, f"{spec['key_env']} not set (no provider key to drive the real agent)"
+    key_env = spec.get("key_env")
+    if key_env and not os.environ.get(key_env, ""):
+        return False, f"{key_env} not set (no provider key to drive the real agent)"
     return True, "real driver available"
 
 
 # ── Per-agent steps ──────────────────────────────────────────────────────
-
-def install_agent(agent: dict, repo_path: Path, workspace: Path) -> int:
-    scripts = agent.get("repo_scripts") or {}
-    requires_ws = bool(agent.get("requires_workspace_arg"))
-    if is_windows():
-        rel = scripts.get("install_windows")
-        if not rel:
-            log("  WARN: no install_windows script in registry")
-            return 1
-        script = repo_path / rel
-        cmd = ["pwsh", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)]
-        if requires_ws:
-            cmd += ["-WorkspaceRoot", str(workspace)]
-    else:
-        rel = scripts.get("install_unix")
-        if not rel:
-            log("  WARN: no install_unix script in registry")
-            return 1
-        script = repo_path / rel
-        cmd = ["bash", str(script)]
-        if requires_ws:
-            cmd += [str(workspace)]
-    if not script.is_file():
-        log(f"  FAIL: install script missing: {script}")
-        return 1
-    return run_cmd(cmd, cwd=repo_path, env=None, timeout=600)
-
-
-def write_psk(paths: dict, psk: str) -> Path | None:
-    if not psk:
-        return None
-    psk_path: Path | None = None
-    config_json = paths.get("config_json")
-    if config_json and Path(config_json).is_file():
-        try:
-            cfg = json.loads(Path(config_json).read_text(encoding="utf-8"))
-            key = cfg.get("edamame_mcp_psk_file") or cfg.get("edamameMcpPskFile")
-            if key:
-                psk_path = Path(os.path.expanduser(str(key)))
-        except Exception:  # noqa: BLE001
-            pass
-    if psk_path is None and paths.get("psk_path"):
-        psk_path = Path(os.path.expanduser(paths["psk_path"]))
-    if psk_path is None:
-        return None
-    psk_path.parent.mkdir(parents=True, exist_ok=True)
-    psk_path.write_text(psk, encoding="utf-8")
-    return psk_path
-
 
 def drive_real_agent_normal(agent_type: str, drive_timeout: int) -> tuple[bool, Path | None]:
     """Run the real agent once with a benign prompt to produce genuine transcripts."""
     spec = REAL_DRIVERS[agent_type]
     workspace = make_scratch_workspace(agent_type)
     log(f"  scratch workspace: {workspace}")
-    rc = spec["drive"](workspace, NORMAL_PROMPT, drive_timeout, False, None)
+    rc = spec["drive"](workspace, spec.get("prompt", NORMAL_PROMPT), drive_timeout, False, None)
     if rc is None:
         log("  (real driver unavailable mid-run)")
         return False, workspace
@@ -810,7 +1007,6 @@ def main() -> int:
         log("FAIL: no agents selected")
         return 1
 
-    psk = os.environ.get("EDAMAME_MCP_PSK", "")
     workspace = Path(os.environ.get("GITHUB_WORKSPACE", os.getcwd())).resolve()
     score_wait = args.score_wait
 
@@ -832,13 +1028,12 @@ def main() -> int:
 
     for agent in agents:
         agent_type = agent["agent_type"]
-        repo_path = Path(agent["repo_path"])
-        section(f"Agent: {agent_type}  ({agent['display_name']})")
-        log(f"Repo: {repo_path}")
+        gate = gate_class(agent_type)
+        section(f"Agent: {agent_type}  ({agent['display_name']})  [{gate}]")
 
         res = {
-            "install": None,
-            "real": None,       # True driven; False drive-failed; None skipped
+            "gate": gate,
+            "real": None,       # True driven; False drive-failed; None skipped/na
             "detected": None,
             "unsecured": None,
             "skip_reason": None,
@@ -846,43 +1041,28 @@ def main() -> int:
         }
         results[agent_type] = res
 
-        if not repo_path.is_dir():
-            log(f"FAIL: repo not found at {repo_path}")
-            res["install"] = False
-            res["notes"].append("repo missing")
-            continue
-
-        try:
-            paths = reg.resolve_install_paths(agent)
-        except Exception as exc:  # noqa: BLE001
-            log(f"WARN: could not resolve install paths: {exc}")
-            paths = {}
-
         can_drive, reason = real_driver_available(agent_type)
-
-        log("--- Install plugin ---")
-        rc = install_agent(agent, repo_path, workspace)
-        res["install"] = rc == 0
-        if rc != 0:
-            if can_drive:
-                log(f"FAIL: install returned {rc}")
-                res["notes"].append("install failed")
-                continue
-            log(f"  WARN: install returned {rc} (skip agent; non-gating)")
-        else:
-            log("  install OK")
-            psk_file = write_psk(paths, psk)
-            if psk_file:
-                log(f"  PSK written: {psk_file}")
-
         if not can_drive:
-            log(f"--- SKIP real drive + detection: {reason} ---")
+            # HARD agent with no OS installer/key, or a pure-skip agent: never
+            # gates here (the real-coverage floor below still rejects all-skip).
             res["skip_reason"] = reason
+            if gate == "best_effort":
+                log(f"--- best-effort (non-gating): {reason} ---")
+            else:
+                log(f"--- SKIP (non-gating): {reason} ---")
             continue
 
         log("--- Drive REAL agent (genuine transcripts) ---")
         ok_drive, _ws = drive_real_agent_normal(agent_type, args.drive_timeout)
         res["real"] = ok_drive
+
+        # Best-effort agent that produced nothing (e.g. claude_desktop GUI app):
+        # report honestly and move on without gating on detection.
+        if gate == "best_effort" and not ok_drive:
+            log("--- best-effort drive produced no transcript; skipping detection (non-gating) ---")
+            res["notes"].append("no headless drive")
+            res["real"] = None
+            continue
 
         log("--- Observer detection (real transcripts; no seeding) ---")
         detected, row = verify_detection(agent_type)
@@ -895,7 +1075,7 @@ def main() -> int:
             log(f"  OK: {agent_type} discovered (sessions={row.get('last_session_count') if row else '?'})")
             driven_detected.append(agent_type)
         else:
-            log(f"  FAIL: {agent_type} not discovered by observer after real drive")
+            log(f"  {'WARN' if gate == 'best_effort' else 'FAIL'}: {agent_type} not discovered by observer after real drive")
             continue
 
         log("--- Unsecured threat toggle (SOFT) ---")
@@ -913,7 +1093,7 @@ def main() -> int:
         floor_ok = True
     else:
         log("FAIL: no real agent was driven and detected on this platform.")
-        log("      (claude_code needs ANTHROPIC_API_KEY + claude CLI; codex needs OPENAI_API_KEY + codex CLI.)")
+        log("      (claude_code/hermes/openclaw need ANTHROPIC_API_KEY; codex needs OPENAI_API_KEY.)")
         floor_ok = False
 
     # ── Divergence (real model + real-agent-driven egress) ─────────────
@@ -947,8 +1127,8 @@ def main() -> int:
     section("Fleet monitoring summary")
     hard_failures = 0
     soft_warnings = 0
-    log(f"{'agent':<16} {'install':<9} {'real':<7} {'detected':<10} {'unsecured':<11} {'note'}")
-    log("-" * 78)
+    log(f"{'agent':<16} {'gate':<12} {'real':<7} {'detected':<10} {'unsecured':<11} {'note'}")
+    log("-" * 80)
 
     def cell(v):
         if v is None:
@@ -958,21 +1138,18 @@ def main() -> int:
     for agent_type, res in results.items():
         note = res["skip_reason"] or (res["notes"][0] if res["notes"] else "")
         log(
-            f"{agent_type:<16} {cell(res['install']):<9} {cell(res['real']):<7} "
+            f"{agent_type:<16} {res['gate']:<12} {cell(res['real']):<7} "
             f"{cell(res['detected']):<10} {cell(res['unsecured']):<11} {note}"
         )
-        is_skip = agent_type in SKIP_REASONS or res["skip_reason"] is not None
-        # HARD: install + real drive + detection for real-driver agents.
-        if not is_skip:
-            if res["install"] is False:
-                hard_failures += 1
+        # HARD agents that were actually attempted (no skip_reason) gate on the
+        # real drive AND observer detection. HARD agents skipped for "no OS
+        # installer / no key" are non-gating (the floor catches an all-skip run).
+        # best_effort + skip agents never gate.
+        if res["gate"] == "hard" and res["skip_reason"] is None:
             if res["real"] is False:
                 hard_failures += 1
             if res["detected"] is False:
                 hard_failures += 1
-        else:
-            if res["install"] is False:
-                soft_warnings += 1
         if res["unsecured"] is False:
             soft_warnings += 1
 
@@ -987,7 +1164,7 @@ def main() -> int:
     if blast_ok is False:
         hard_failures += 1
     if soft_warnings:
-        log(f"soft warnings: {soft_warnings} (non-gating: unsecured toggle / skip-agent install)")
+        log(f"soft warnings: {soft_warnings} (non-gating: unsecured toggle)")
 
     log("")
     if hard_failures:
