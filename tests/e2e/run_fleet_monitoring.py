@@ -104,6 +104,18 @@ import tempfile
 import time
 from pathlib import Path
 
+# Force UTF-8 on OUR OWN stdout/stderr. run_cmd/popen_cmd already DECODE child output
+# as UTF-8, but on the Windows runner sys.stdout itself defaults to the cp1252 console
+# codec, so echoing a child's UTF-8 text (the Hermes installer prints box-drawing /
+# emoji) raised UnicodeEncodeError ("'charmap' codec can't encode characters ...") --
+# a HARD failure of the hermes leg. This is the OUTPUT-side complement to the
+# INPUT-side decode forcing in the subprocess helpers below.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    except (AttributeError, ValueError):
+        pass
+
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE / "triggers"))
