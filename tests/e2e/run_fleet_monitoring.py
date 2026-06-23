@@ -1161,6 +1161,48 @@ def dump_model_scope() -> None:
     log(f"  model: {pretty}")
 
 
+def model_supports_any_lineage_scope() -> bool:
+    """True when the deployed posture binary's behavioral model carries a
+    non-empty `scope_any_lineage_paths` on any prediction.
+
+    This is the capability signal that the engine can attribute an egressing
+    process to an agent at GRANDPARENT lineage depth -- exactly the Windows Git
+    Bash double-exec case (agent.exe -> bash launcher -> real bash egress). The
+    field is populated by edamame_foundation's per-agent transcript adapters
+    (identity-only patterns: `*/claude`, `*\\codex.exe`, ...). A released binary
+    that predates that fix either omits the field entirely (older core schema)
+    or leaves it empty (older foundation), so the scan returns False and the
+    Windows divergence leg stays best-effort. The deployed model is the source
+    of truth -- there is no hardcoded version check."""
+    raw = rpc_quiet("get_behavioral_model")
+    if not isinstance(raw, str) or not raw.strip():
+        return False
+    try:
+        model = json.loads(raw)
+    except Exception:  # noqa: BLE001
+        return False
+
+    found = False
+
+    def scan(node: object) -> None:
+        nonlocal found
+        if found:
+            return
+        if isinstance(node, dict):
+            v = node.get("scope_any_lineage_paths")
+            if isinstance(v, list) and len(v) > 0:
+                found = True
+                return
+            for child in node.values():
+                scan(child)
+        elif isinstance(node, list):
+            for child in node:
+                scan(child)
+
+    scan(model)
+    return found
+
+
 def _is_probe_session(sess: dict, l7: dict) -> bool:
     """A session is a probe hit if it targets a known probe IP OR is an external
     high-UDP-port session on one of the probe ports attributed to the agent's shell
@@ -1211,7 +1253,8 @@ def dump_probe_sessions() -> int:
             f"{sess.get('dst_port')} "
             f"proc={l7.get('process_name')!r}@{l7.get('process_path')!r} "
             f"parent={l7.get('parent_process_name')!r}@{l7.get('parent_process_path')!r} "
-            f"gp={l7.get('grandparent_process_name')!r} asn={(asn or {}).get('owner')!r}"
+            f"gp={l7.get('grandparent_process_name')!r}@{l7.get('grandparent_process_path')!r} "
+            f"asn={(asn or {}).get('owner')!r}"
         )
     log(
         f"  captured {hits} probe session(s) across {len(distinct_dst)} distinct "
@@ -1577,7 +1620,7 @@ def main() -> int:
         representative = "claude_code" if "claude_code" in driven_detected else (
             "codex" if "codex" in driven_detected else None
         )
-        _gate_mode = "best-effort/non-gating" if is_windows() else "HARD"
+        _gate_mode = "capability-gated" if is_windows() else "HARD"
         section(
             f"Divergence verdict ({_gate_mode}, real model, "
             f"representative: {representative or 'NONE'})"
@@ -1633,19 +1676,31 @@ def main() -> int:
             soft_warnings += 1
 
     # The divergence leg is HARD on Linux/macOS, where the agent's persistent shell
-    # is a POSIX bash whose /dev/udp egress is reliably attributed to the agent
-    # lineage by flodbadd and matched by the engine's parent-path scope. On Windows
-    # the probe DOES run, capture, and attribute (proc=bash parent=bash gp=claude),
-    # but Git Bash double-execs (cmd-shim bash.exe -> usr/bin/bash.exe), so the
-    # egressing bash is the agent CLI's GRANDCHILD. The released posture engine
-    # scopes claude_code by PARENT path only, so the grandparent (`claude.exe`)
-    # lineage falls outside scope and the verdict stays CLEAN. This is a released-
-    # engine scope-config gap, not a test bug, so a Windows divergence miss is a
-    # soft warning (non-gating). It flips to HARD once the edamame_foundation
-    # grandparent/any-lineage scope fix ships in a posture release.
-    divergence_gates = not is_windows()
+    # is a POSIX bash whose /dev/udp egress is the DIRECT child of the agent and is
+    # matched by the engine's parent-path scope. On Windows the agent CLI double-
+    # execs through Git Bash (cmd-shim bash.exe -> usr/bin/bash.exe), so the
+    # egressing bash is the agent's GRANDCHILD; attribution requires the engine to
+    # match the agent identity at any-lineage (up to grandparent) depth. That
+    # capability is published by edamame_foundation's per-agent adapters as a
+    # non-empty `scope_any_lineage_paths` in the behavioral model. The gate is
+    # therefore CAPABILITY-AWARE: it hard-gates Windows the moment the deployed
+    # posture binary carries that fix, and stays best-effort (non-gating) on older
+    # binaries that predate it. No hardcoded version check -- the deployed model
+    # is the source of truth (see model_supports_any_lineage_scope()).
+    win_any_lineage = is_windows() and model_supports_any_lineage_scope()
+    divergence_gates = (not is_windows()) or win_any_lineage
     log("")
     log(f"real-coverage floor: {cell(floor_ok)}")
+    if is_windows():
+        log(
+            "windows any-lineage scope: "
+            + (
+                "PRESENT -> divergence HARD"
+                if win_any_lineage
+                else "ABSENT -> divergence best-effort (deployed posture predates the "
+                "foundation any-lineage fix; flips to HARD on next release)"
+            )
+        )
     log(
         f"divergence:          {cell(divergence_ok)}"
         + ("" if divergence_gates else "  (best-effort on Windows: non-gating)")
@@ -1660,9 +1715,10 @@ def main() -> int:
             soft_warnings += 1
             log(
                 "soft warning: divergence miss on Windows -- probe captured + "
-                "attributed, but Git Bash double-exec puts claude.exe at GRANDPARENT, "
-                "outside the released engine's parent-only claude_code scope "
-                "(hard once the foundation grandparent-scope fix ships)"
+                "attributed (agent.exe at GRANDPARENT via Git Bash double-exec), but "
+                "the deployed posture binary predates the foundation any-lineage scope "
+                "fix (scope_any_lineage_paths empty), so the grandparent identity is "
+                "out of scope. Auto-flips to HARD once a posture release ships the fix."
             )
     if blast_ok is False:
         hard_failures += 1
