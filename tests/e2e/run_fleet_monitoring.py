@@ -51,7 +51,10 @@ Per-agent verification levels:
 Fleet-wide verification (run once):
   - divergence verdict HARD on Linux/macOS, best-effort (non-gating) on Windows
                        (real model + real-agent-driven /dev/udp egress -> DIVERGENCE;
-                       Windows Git Bash /dev/udp + L7 attribution unverified)
+                       Windows captures + attributes the probe but Git Bash double-
+                       exec makes claude.exe the GRANDPARENT, outside the released
+                       engine's parent-only claude_code scope -- hard once the
+                       foundation grandparent-scope fix ships in a posture release)
   - host blast radius  HARD  (structural assertion on get_host_blast_radius)
 
 Prerequisites (set up by the calling workflow):
@@ -392,10 +395,15 @@ NORMAL_PROMPT_SIMPLE = (
 # shells the representative agent (claude_code) uses for its Bash tool: /bin/bash
 # on Linux, /bin/bash 3.2 on macOS, and Git Bash (MSYS2) on Windows -- all support
 # /dev/udp, `trap '' PIPE`, and arithmetic `while` loops. The divergence leg is
-# HARD-gated on Linux/macOS; on Windows it runs best-effort (non-gating) because
-# L7 attribution of a bash-opened UDP socket on the Windows capture path is not yet
-# proven green -- it is attempted and reported honestly, and flips to HARD once a
-# green Windows data point lands.
+# HARD-gated on Linux/macOS; on Windows it runs best-effort (non-gating) for one
+# remaining reason that is NOT a test bug: L7 attribution IS proven on Windows (the
+# probe captures and attributes its sockets -- proc=bash parent=bash gp=claude), but
+# Git Bash double-execs (cmd-shim bash.exe -> usr/bin/bash.exe), so the egressing
+# bash is the agent CLI's GRANDCHILD, not its child. The released posture engine
+# scopes claude_code by PARENT path only, so the grandparent (`claude.exe`) lineage
+# falls just outside scope and the verdict stays CLEAN. Flipping this leg to HARD
+# needs the edamame_foundation grandparent/any-lineage scope fix to ship in a posture
+# release; until then the probe runs and is reported honestly.
 # SIX fixed RFC 5737 TEST-NET IPs (two from each of the three documentation blocks).
 # IANA reserves these blocks for documentation/testing: no host is ever assigned to
 # them, so the probe touches NO third party (this is what defuses the agent's prior
@@ -618,7 +626,12 @@ HERMES_INSTALL_SH = (
 HERMES_INSTALL_PS1 = "iex (irm https://hermes-agent.nousresearch.com/install.ps1)"
 _HERMES_BIN_DIRS = ("~/.local/bin", "/usr/local/bin", "~/.hermes/bin")
 # uv/console_scripts + the PS1 installer drop the launcher in one of these on Windows.
+# The PS1 installer clones to ~/.hermes/hermes-agent and builds a venv next to it, so
+# the real pip console_scripts shim is <venv>/Scripts/hermes.exe -- list those venv
+# Scripts dirs FIRST so cli_path() resolves the .exe before the bare Unix launcher.
 _HERMES_BIN_DIRS_WIN = (
+    "~/.hermes/hermes-agent/venv/Scripts",
+    "~/.hermes/venv/Scripts",
     "~/.local/bin",
     "~/.hermes/bin",
     "~/AppData/Local/Programs/hermes",
@@ -676,19 +689,35 @@ def _find_hermes_under_home() -> str | None:
     """Last-resort resolver: the Windows installer mutates the *user* PATH, which
     does NOT propagate into this already-running process, so search HOME for the
     freshly-installed launcher and prepend its dir to PATH. Uses a junction-safe
-    bounded walk (NOT rglob) so the legacy AppData junctions can't crash it."""
+    bounded walk (NOT rglob) so the legacy AppData junctions can't crash it.
+
+    On Windows ONLY the executable shims (hermes.exe / .cmd / .bat) are valid: the
+    extensionless `hermes` under ~/.hermes/hermes-agent/ is a Unix shell launcher
+    that Windows cannot exec, which surfaces as `[WinError 193] %1 is not a valid
+    Win32 application` when the driver tries to run it. The pip console_scripts
+    shim is hermes.exe under <venv>/Scripts, so rank Scripts hits first, then by
+    extension (.exe > .cmd > .bat), and never return the bare launcher on Windows."""
     home = Path.home()
-    names = {"hermes.exe", "hermes.cmd", "hermes.bat", "hermes"}
+    names = {"hermes.exe", "hermes.cmd", "hermes.bat"} if is_windows() else {"hermes"}
+    hits: list[Path] = []
     for root in (home / ".hermes", home / ".local", home / "AppData"):
         if not root.is_dir():
             continue
         try:
-            for hit in _walk_for_names(root, names):
-                _augment_path(str(hit.parent))
-                return str(hit)
+            hits.extend(_walk_for_names(root, names))
         except OSError:
             continue
-    return None
+    if not hits:
+        return None
+
+    def _rank(p: Path) -> tuple:
+        ext_order = {".exe": 0, ".cmd": 1, ".bat": 2}
+        in_scripts = 0 if "scripts" in str(p.parent).lower() else 1
+        return (in_scripts, ext_order.get(p.suffix.lower(), 9), len(str(p)))
+
+    best = min(hits, key=_rank)
+    _augment_path(str(best.parent))
+    return str(best)
 
 
 def ensure_hermes_installed() -> str | None:
@@ -761,7 +790,17 @@ def ensure_openclaw_installed() -> str | None:
     log("  installing OpenClaw CLI (npm -g)")
     run_cmd(["npm", "install", "-g", pkg], None, None, 900)
     try:
-        r = subprocess.run(["npm", "prefix", "-g"], capture_output=True, text=True, timeout=60)
+        # encoding/errors are MANDATORY here: npm emits UTF-8 (box-drawing chars in
+        # update notices), and on Windows text=True defaults to the cp1252 charmap
+        # codec, which raises UnicodeDecodeError on those bytes and kills the thread.
+        r = subprocess.run(
+            ["npm", "prefix", "-g"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
+        )
         if r.returncode == 0 and r.stdout.strip():
             _augment_path(str(Path(r.stdout.strip()) / "bin"), r.stdout.strip())
     except Exception:  # noqa: BLE001
@@ -1593,14 +1632,17 @@ def main() -> int:
         if res["unsecured"] is False:
             soft_warnings += 1
 
-    # The divergence leg is HARD on Linux/macOS, where the agent's persistent
-    # shell is a POSIX bash whose /dev/udp egress is reliably attributed to the
-    # agent lineage by flodbadd. On Windows the agent's shell is Git Bash (MSYS2),
-    # whose /dev/udp redirection support and the OS-level L7 attribution of a
-    # bash-opened UDP socket to the agent process are not yet verified end to end,
-    # so a Windows divergence miss is a soft warning (non-gating) rather than a hard
-    # failure. The probe itself runs on all three OSes; only the GATE is relaxed on
-    # Windows until that path is confirmed.
+    # The divergence leg is HARD on Linux/macOS, where the agent's persistent shell
+    # is a POSIX bash whose /dev/udp egress is reliably attributed to the agent
+    # lineage by flodbadd and matched by the engine's parent-path scope. On Windows
+    # the probe DOES run, capture, and attribute (proc=bash parent=bash gp=claude),
+    # but Git Bash double-execs (cmd-shim bash.exe -> usr/bin/bash.exe), so the
+    # egressing bash is the agent CLI's GRANDCHILD. The released posture engine
+    # scopes claude_code by PARENT path only, so the grandparent (`claude.exe`)
+    # lineage falls outside scope and the verdict stays CLEAN. This is a released-
+    # engine scope-config gap, not a test bug, so a Windows divergence miss is a
+    # soft warning (non-gating). It flips to HARD once the edamame_foundation
+    # grandparent/any-lineage scope fix ships in a posture release.
     divergence_gates = not is_windows()
     log("")
     log(f"real-coverage floor: {cell(floor_ok)}")
@@ -1616,7 +1658,12 @@ def main() -> int:
             hard_failures += 1
         else:
             soft_warnings += 1
-            log("soft warning: divergence miss on Windows (Git Bash /dev/udp unverified)")
+            log(
+                "soft warning: divergence miss on Windows -- probe captured + "
+                "attributed, but Git Bash double-exec puts claude.exe at GRANDPARENT, "
+                "outside the released engine's parent-only claude_code scope "
+                "(hard once the foundation grandparent-scope fix ships)"
+            )
     if blast_ok is False:
         hard_failures += 1
     if soft_warnings:
