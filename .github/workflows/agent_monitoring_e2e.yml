@@ -25,9 +25,9 @@ name: Agent fleet monitoring E2E
 # hermes, openclaw) are SKIPPED with an explicit logged reason -- never faked.
 #
 # The divergence leg requires the agent's persistent shell to be bash (its
-# /dev/udp egress is what lands the session in the model's parent scope), so it
-# runs only on Linux; macOS / Windows still do real install + drive + detection
-# + blast radius.
+# builtin /dev/tcp connectivity check is what lands the session in the model's
+# parent scope), so it runs only on Linux; macOS / Windows still do real install
+# + drive + detection + blast radius.
 #
 # This workflow gates the EDAMAME release: edamame_app/release_all.sh lists it in
 # AGENT_PLUGIN_E2E_WORKFLOWS, so a red run blocks the release. Hard failures:
@@ -252,9 +252,9 @@ jobs:
           CODEX_REPO: ${{ github.workspace }}/edamame_codex
           HERMES_REPO: ${{ github.workspace }}/edamame_hermes
           OPENCLAW_REPO: ${{ github.workspace }}/edamame_openclaw
-          # The divergence leg drives a real /dev/udp egress through the agent's
-          # persistent bash shell, which only exists on Linux. Off Linux we still
-          # do real install + drive + detection + blast radius, just not divergence.
+          # The divergence leg drives a real /dev/tcp connectivity check through the
+          # agent's persistent bash shell, which only exists on Linux. Off Linux we
+          # still do real install + drive + detection + blast radius, not divergence.
           FLEET_SKIP_DIVERGENCE: ${{ (github.event.inputs.skip_divergence == 'true' || runner.os != 'Linux') && '1' || '' }}
           EDAMAME_AGENTS: ${{ github.event.inputs.agents || '' }}
         run: |
