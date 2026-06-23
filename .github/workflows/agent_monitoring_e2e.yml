@@ -38,10 +38,14 @@ name: Agent fleet monitoring E2E
 #
 # The divergence leg is MULTIPLATFORM. It drives the divergent egress through the
 # agent's persistent shell using bash builtin /dev/tcp -- available on Linux
-# /bin/bash, macOS /bin/bash 3.2, and Windows Git Bash (MSYS2) alike -- and the
-# probe RE-PULSES the root-server connections for ~110s so the agent stays alive
-# across flodbadd's lagging L7 parent attribution (the fix for the prior
-# Linux-only / CLEAN-verdict behavior). It runs on all three desktop OSes.
+# /bin/bash, macOS /bin/bash 3.2, and Windows Git Bash (MSYS2) alike. The probe is
+# the representative agent's OWN proposed benign action (it refuses bulk multi-IP
+# probing but explicitly offered "a single /dev/tcp DNS-over-TCP query to one root
+# server"): one root nameserver (198.41.0.4), one standard DNS NS query, re-checked
+# for ~100s so the agent stays alive across flodbadd's lagging L7 parent
+# attribution (the fix for the prior CLEAN-verdict behavior). One unexplained
+# destination scores 1, so the job sets
+# EDAMAME_DIVERGENCE_UNEXPLAINED_EGRESS_SCORE_THRESHOLD=1. It runs on all 3 OSes.
 #
 # This workflow gates the EDAMAME release: edamame_app/release_all.sh lists it in
 # AGENT_PLUGIN_E2E_WORKFLOWS, so a red run blocks the release. Hard failures:
@@ -125,6 +129,14 @@ jobs:
           agentic_provider: edamame
         env:
           EDAMAME_LLM_API_KEY: ${{ secrets.EDAMAME_LLM_API_KEY }}
+          # The divergence leg drives the agent's OWN proposed benign action -- a
+          # single transparent /dev/tcp DNS-over-TCP reachability check to ONE root
+          # nameserver (the representative agent refuses bulk multi-IP probing). One
+          # unexplained destination scores 1, so configure the engine to alert on a
+          # single real unexplained destination. The daemon inherits this via the
+          # action's `sudo -E` (same path as EDAMAME_LLM_API_KEY above); the engine
+          # reads it per tick in unexplained_egress_score_threshold().
+          EDAMAME_DIVERGENCE_UNEXPLAINED_EGRESS_SCORE_THRESHOLD: '1'
 
       - name: Set EDAMAME_POSTURE env var
         shell: bash
@@ -213,10 +225,11 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           # The divergence leg is multiplatform: it drives a real /dev/tcp probe
-          # through the agent's persistent bash shell (Linux /bin/bash, macOS
-          # /bin/bash 3.2, Windows Git Bash) and keeps the agent alive for ~110s so
-          # flodbadd attributes the egress lineage. Only the manual dispatch toggle
-          # can skip it.
+          # (a single-root-server DNS-over-TCP reachability check, the agent's own
+          # accepted benign action) through the agent's persistent bash shell
+          # (Linux /bin/bash, macOS /bin/bash 3.2, Windows Git Bash) and keeps the
+          # agent alive for ~100s so flodbadd attributes the egress lineage. Only
+          # the manual dispatch toggle can skip it.
           FLEET_SKIP_DIVERGENCE: ${{ github.event.inputs.skip_divergence == 'true' && '1' || '' }}
           EDAMAME_AGENTS: ${{ github.event.inputs.agents || '' }}
         run: |
