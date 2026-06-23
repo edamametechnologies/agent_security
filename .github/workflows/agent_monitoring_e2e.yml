@@ -12,8 +12,8 @@ name: Agent fleet monitoring E2E
 #
 # On each of macOS / Windows / Linux it:
 #   1. installs/drives the real agent products headlessly with real provider keys
-#      (claude, codex via npm; hermes via its headless install.sh; openclaw via
-#      npm), producing genuine on-disk transcripts,
+#      (claude, codex via npm; hermes via install.sh on Linux/macOS and install.ps1
+#      on Windows; openclaw via npm), producing genuine on-disk transcripts,
 #   2. verifies EDAMAME's host-side transcript observer DISCOVERS each driven
 #      agent from its real transcripts,
 #   3. verifies pausing a driven agent's observer raises its unsecured_<agent>
@@ -24,8 +24,10 @@ name: Agent fleet monitoring E2E
 #
 # Per-agent gating:
 #   - claude_code / codex / hermes / openclaw : HARD (real drive + detection).
-#     A HARD agent is SKIPPED (non-gating) only where there is no OS installer
-#     (hermes has no Windows installer; the rest run everywhere) or no key.
+#     Every HARD agent now has a headless installer on every desktop OS (hermes
+#     install.sh on Linux/macOS + install.ps1 on Windows; the rest run via npm
+#     everywhere), so a HARD agent is SKIPPED (non-gating) only when its provider
+#     key is absent.
 #   - claude_desktop : BEST-EFFORT (GUI app, no headless drive CLI) -- attempted
 #     and reported honestly, never faked, never gating.
 #   - cursor : SKIP (GUI IDE; no headless agent CLI wired in hosted CI).
@@ -34,16 +36,18 @@ name: Agent fleet monitoring E2E
 # on each leg. A green run made only of skips would be indistinguishable from the
 # old synthetic gate and is rejected.
 #
-# The divergence leg requires the agent's persistent shell to be bash (its
-# builtin /dev/tcp connectivity check is what lands the session in the model's
-# parent scope), so it runs only on Linux; macOS / Windows still do real drive +
-# detection + blast radius.
+# The divergence leg is MULTIPLATFORM. It drives the divergent egress through the
+# agent's persistent shell using bash builtin /dev/tcp -- available on Linux
+# /bin/bash, macOS /bin/bash 3.2, and Windows Git Bash (MSYS2) alike -- and the
+# probe RE-PULSES the root-server connections for ~110s so the agent stays alive
+# across flodbadd's lagging L7 parent attribution (the fix for the prior
+# Linux-only / CLEAN-verdict behavior). It runs on all three desktop OSes.
 #
 # This workflow gates the EDAMAME release: edamame_app/release_all.sh lists it in
 # AGENT_PLUGIN_E2E_WORKFLOWS, so a red run blocks the release. Hard failures:
 # attempted-HARD-agent real drive + observer detection, the real-coverage floor,
-# and the fleet-wide divergence (Linux) + blast-radius legs. Soft (warn only):
-# the unsecured_<agent> toggle. All cross-agent orchestration lives in
+# and the fleet-wide divergence + blast-radius legs (all platforms). Soft (warn
+# only): the unsecured_<agent> toggle. All cross-agent orchestration lives in
 # tests/e2e/run_fleet_monitoring.py.
 
 on:
@@ -69,7 +73,7 @@ on:
         required: false
         default: ''
       skip_divergence:
-        description: 'Force-skip the divergence leg (it already auto-skips off Linux)'
+        description: 'Force-skip the divergence leg (it now runs on all 3 OSes by default)'
         type: boolean
         required: false
         default: false
@@ -146,9 +150,9 @@ jobs:
 
       # ── Real agent CLIs (no synthetic transcripts -- these produce them) ─
       # claude_code, codex and openclaw are npm-installable everywhere; hermes
-      # self-installs via its install.sh from the driver (Linux/macOS only).
-      # Install the npm ones on every OS so the real-coverage floor can be met
-      # on each leg (the driver self-selects whichever it can drive + detect).
+      # self-installs from the driver (install.sh on Linux/macOS, install.ps1 on
+      # Windows). Install the npm ones on every OS so the real-coverage floor can
+      # be met on each leg (the driver self-selects whichever it can drive + detect).
       - name: Install real agent CLIs (claude, codex, openclaw)
         shell: bash
         run: |
@@ -208,10 +212,12 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GITHUB_RUN_ID: ${{ github.run_id }}
-          # The divergence leg drives a real /dev/tcp connectivity check through the
-          # agent's persistent bash shell, which only exists on Linux. Off Linux we
-          # still do real install + drive + detection + blast radius, not divergence.
-          FLEET_SKIP_DIVERGENCE: ${{ (github.event.inputs.skip_divergence == 'true' || runner.os != 'Linux') && '1' || '' }}
+          # The divergence leg is multiplatform: it drives a real /dev/tcp probe
+          # through the agent's persistent bash shell (Linux /bin/bash, macOS
+          # /bin/bash 3.2, Windows Git Bash) and keeps the agent alive for ~110s so
+          # flodbadd attributes the egress lineage. Only the manual dispatch toggle
+          # can skip it.
+          FLEET_SKIP_DIVERGENCE: ${{ github.event.inputs.skip_divergence == 'true' && '1' || '' }}
           EDAMAME_AGENTS: ${{ github.event.inputs.agents || '' }}
         run: |
           PY=python3
