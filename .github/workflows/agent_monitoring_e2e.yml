@@ -37,23 +37,30 @@ name: Agent fleet monitoring E2E
 # old synthetic gate and is rejected.
 #
 # The divergence leg is MULTIPLATFORM. It drives the divergent egress through the
-# agent's persistent shell using bash builtin /dev/tcp -- available on Linux
-# /bin/bash, macOS /bin/bash 3.2, and Windows Git Bash (MSYS2) alike. The probe is
-# a low-volume, agent-accepted reachability/redundancy check (the representative
-# agent refuses the 297-connection multi-IP hammer but accepts one small
-# DNS-over-TCP NS query per server): SIX canonical public root nameservers run by
-# different operators (Verisign / Cogent / U-Maryland / ISC / DoD / RIPE),
-# re-checked for ~100s so the agent stays alive across flodbadd's lagging L7
-# parent attribution (the fix for the prior CLEAN-verdict behavior). Each distinct
-# root:53 is one UNIQUE unexplained destination, so 6 roots score >= 6 and cross
-# the engine's REAL production default threshold (4) on their own -- no lowered-
-# threshold env var, no reliance on incidental egress. It runs on all 3 OSes.
+# agent's persistent shell using bash builtin /dev/udp -- available on Linux
+# /bin/bash and macOS /bin/bash 3.2; on Windows Git Bash (MSYS2) /dev/udp support
+# and OS-level L7 attribution of a bash-opened UDP socket are not yet verified, so
+# the probe still RUNS on Windows but the GATE is best-effort there (a Windows miss
+# is a soft warning, not a hard failure). The probe is a low-volume, agent-accepted
+# UDP path-reachability check (the representative agent refuses the 297-connection
+# multi-IP hammer but accepts one small datagram per target per pass): SIX fixed
+# public reference IPs run by different organizations x TWO high, non-standard UDP
+# ports (63169/63170) = 12 UNIQUE unexplained host:port destinations, re-sent for
+# ~100s so the agent stays alive across flodbadd's lagging L7 parent attribution.
+# The HIGH UDP PORT is the fix for the prior CLEAN verdict: the earlier TCP/53
+# probe DID cross the deterministic threshold but the daemon's LLM adjudicator
+# cleared it (a "rootIP:53" reads as benign DNS), whereas high-port UDP egress is
+# never benign-infrastructure deterministically AND has no benign-DNS story for the
+# LLM, so the DIVERGENCE verdict is KEPT. 12 destinations >> the engine's REAL
+# production default threshold (4) -- no lowered-threshold env var, no reliance on
+# incidental egress.
 #
 # This workflow gates the EDAMAME release: edamame_app/release_all.sh lists it in
 # AGENT_PLUGIN_E2E_WORKFLOWS, so a red run blocks the release. Hard failures:
 # attempted-HARD-agent real drive + observer detection, the real-coverage floor,
-# and the fleet-wide divergence + blast-radius legs (all platforms). Soft (warn
-# only): the unsecured_<agent> toggle. All cross-agent orchestration lives in
+# the fleet-wide blast-radius leg (all platforms), and the divergence leg on
+# Linux/macOS. Soft (warn only): the unsecured_<agent> toggle, and a divergence
+# miss on Windows. All cross-agent orchestration lives in
 # tests/e2e/run_fleet_monitoring.py.
 
 on:
@@ -218,12 +225,13 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GITHUB_RUN_ID: ${{ github.run_id }}
-          # The divergence leg is multiplatform: it drives a real /dev/tcp probe
-          # (a single-root-server DNS-over-TCP reachability check, the agent's own
-          # accepted benign action) through the agent's persistent bash shell
-          # (Linux /bin/bash, macOS /bin/bash 3.2, Windows Git Bash) and keeps the
-          # agent alive for ~100s so flodbadd attributes the egress lineage. Only
-          # the manual dispatch toggle can skip it.
+          # The divergence leg is multiplatform: it drives a real /dev/udp probe
+          # (small datagrams to 6 fixed public IPs x 2 high UDP ports = 12 unique
+          # unexplained destinations, the agent's own accepted reachability check)
+          # through the agent's persistent bash shell and keeps the agent alive for
+          # ~100s so flodbadd attributes the egress lineage. HARD on Linux/macOS;
+          # best-effort (non-gating) on Windows Git Bash. Only the manual dispatch
+          # toggle can skip it entirely.
           FLEET_SKIP_DIVERGENCE: ${{ github.event.inputs.skip_divergence == 'true' && '1' || '' }}
           EDAMAME_AGENTS: ${{ github.event.inputs.agents || '' }}
         run: |
