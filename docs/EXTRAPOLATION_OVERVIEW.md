@@ -8,14 +8,24 @@ different trigger mechanism.
 
 The two-plane model requires a **reasoning-plane producer** that periodically
 reads agent session transcripts and forwards a compact behavioral prediction
-to EDAMAME's system-plane observer. This is the extrapolator. Its output is a
-`BehavioralWindow` slice containing expected traffic, processes, sensitive
-file access, and LAN activity that the divergence engine correlates against
-live host telemetry.
+to EDAMAME's system-plane observer. That prediction is a `BehavioralWindow`
+slice containing expected traffic, processes, sensitive file access, and LAN
+activity that the divergence engine correlates against live host telemetry.
 
-The challenge: each AI platform stores transcripts differently, exposes
-different lifecycle APIs, and runs in different process models. The
-extrapolation contract is the same; the trigger and transport vary.
+For any agent **discovered on disk on the host**, that producer is EDAMAME's
+own **host-side transcript observer** (in the Rust core,
+`edamame_foundation::agent_transcripts`): it reads the transcripts directly and
+runs divergence detection with **no plugin installed**, and a compromised agent
+cannot pause or silence it. The **extrapolator** described in this document is
+the *additive, off-host* producer -- it runs where the agent runs (a remote
+box, container, CI, or VM whose transcripts the host observer cannot read) and
+posts the same `BehavioralWindow` slice over MCP. Both producers speak the
+identical contract; the divergence engine merges their slices and hash-skips
+redundant work when they overlap.
+
+The challenge this document addresses: each AI platform stores transcripts
+differently, exposes different lifecycle APIs, and runs in different process
+models. The extrapolation contract is the same; the trigger and transport vary.
 
 ## Platform Comparison
 
