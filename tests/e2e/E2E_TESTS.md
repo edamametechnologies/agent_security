@@ -1,5 +1,11 @@
 # Agent Security E2E Test Architecture
 
+> **EDAMAME 1.7.0:** Level-2 plugin repo `test_e2e.yml` / `sign_windows_scripts.yml`
+> workflows are retired (no-op stubs). The **sole release-gating** agent E2E is
+> `.github/workflows/agent_monitoring_e2e.yml` in this repo -- **plugin-free** fleet
+> monitoring with real agents. Per-repo `tests/e2e_inject_intent.sh` remains a fast
+> contract test only, not a release gate.
+
 > **Looking to run a demo?** See [DEMO.md](DEMO.md) for step-by-step
 > instructions to reproduce vulnerability and divergence detection demos.
 
@@ -80,12 +86,10 @@ it reuses the proven install -> pair PSK -> intent -> observer probe ->
 divergence verdict recipe in a registry-driven loop and adds the net-new
 `get_host_blast_radius` assertion.
 
-Unlike the per-repo `test_e2e.yml` (which validates one plugin at a time), the
-fleet driver answers the operator question *"on this OS, does EDAMAME see
-every agent we ship, raise an `unsecured_<agent>` threat when an observer is
-paused, catch a divergence, and report the blast radius?"* in a single job.
-Per-repo `test_e2e.yml` healthcheck steps (`healthcheck_cli.mjs`) are hard
-gates -- do not soft-pass them with `|| true`.
+Unlike per-repo plugin `test_e2e.yml` (retired 1.7.0), the fleet driver answers
+the operator question *"on this OS, does EDAMAME see every agent we ship, raise an
+`unsecured_<agent>` threat when an observer is paused, catch a divergence, and
+report the blast radius (including nono/srt harnesses)?"* in a single job.
 
 | Leg | Scope | Severity | What it asserts |
 |-----|-------|----------|-----------------|

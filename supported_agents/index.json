@@ -10,13 +10,6 @@
       "strategy_kind": "workstation_stdio_mcp",
       "sort_order": 10,
       "requires_workspace_arg": true,
-      "repo_scripts": {
-        "install_unix": "setup/install.sh",
-        "install_windows": "setup/install.ps1",
-        "uninstall_unix": "setup/uninstall.sh",
-        "uninstall_windows": "setup/uninstall.ps1",
-        "healthcheck_relpath": "service/healthcheck_cli.mjs"
-      },
       "install_layout": {
         "install_base": "data_dir",
         "install_relative_path": "cursor-edamame/current",
@@ -47,13 +40,6 @@
       "strategy_kind": "workstation_stdio_mcp",
       "sort_order": 20,
       "requires_workspace_arg": true,
-      "repo_scripts": {
-        "install_unix": "setup/install.sh",
-        "install_windows": "setup/install.ps1",
-        "uninstall_unix": "setup/uninstall.sh",
-        "uninstall_windows": "setup/uninstall.ps1",
-        "healthcheck_relpath": "service/healthcheck_cli.mjs"
-      },
       "install_layout": {
         "install_base": "data_dir",
         "install_relative_path": "claude-code-edamame/current",
@@ -84,13 +70,6 @@
       "strategy_kind": "claude_desktop_dual_mcp",
       "sort_order": 30,
       "requires_workspace_arg": true,
-      "repo_scripts": {
-        "install_unix": "setup/install.sh",
-        "install_windows": "setup/install.ps1",
-        "uninstall_unix": "setup/uninstall.sh",
-        "uninstall_windows": "setup/uninstall.ps1",
-        "healthcheck_relpath": "service/healthcheck_cli.mjs"
-      },
       "install_layout": {
         "install_base": "data_dir",
         "install_relative_path": "claude-desktop-edamame/current",
@@ -122,13 +101,6 @@
       "strategy_kind": "workstation_stdio_mcp",
       "sort_order": 35,
       "requires_workspace_arg": true,
-      "repo_scripts": {
-        "install_unix": "setup/install.sh",
-        "install_windows": "setup/install.ps1",
-        "uninstall_unix": "setup/uninstall.sh",
-        "uninstall_windows": "setup/uninstall.ps1",
-        "healthcheck_relpath": "service/healthcheck_cli.mjs"
-      },
       "install_layout": {
         "install_base": "data_dir",
         "install_relative_path": "codex-edamame/current",
@@ -159,13 +131,6 @@
       "strategy_kind": "workstation_stdio_mcp",
       "sort_order": 37,
       "requires_workspace_arg": false,
-      "repo_scripts": {
-        "install_unix": "setup/install.sh",
-        "install_windows": "setup/install.ps1",
-        "uninstall_unix": "setup/uninstall.sh",
-        "uninstall_windows": "setup/uninstall.ps1",
-        "healthcheck_relpath": "service/healthcheck_cli.mjs"
-      },
       "install_layout": {
         "install_base": "data_dir",
         "install_relative_path": "hermes-edamame/current",
@@ -196,13 +161,6 @@
       "strategy_kind": "openclaw_plugin_bundle",
       "sort_order": 40,
       "requires_workspace_arg": false,
-      "repo_scripts": {
-        "install_unix": "setup/install.sh",
-        "install_windows": "setup/install.ps1",
-        "uninstall_unix": "setup/uninstall.sh",
-        "uninstall_windows": "setup/uninstall.ps1",
-        "healthcheck_relpath": "service/healthcheck_cli.mjs"
-      },
       "install_layout": {
         "install_base": "home",
         "install_relative_path": ".openclaw/edamame-openclaw",

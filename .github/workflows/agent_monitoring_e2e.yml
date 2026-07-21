@@ -5,10 +5,10 @@ name: Agent fleet monitoring E2E
 # OpenClaw, Claude Desktop) using REAL agents and WITHOUT any EDAMAME plugin --
 # NO synthetic transcripts, no seeded observer roots, no hand-crafted models.
 #
-# EDAMAME plugins are OUT OF SCOPE here. The plugins (the edamame_<agent> Node
-# bridges) are the OPTIONAL Level-2 layer and are exercised by each plugin repo's
-# own test_e2e.yml. This workflow checks out NO plugin repo, installs NO plugin,
-# and starts NO MCP server -- it proves the plugin-free host-resident path.
+# EDAMAME Level-2 agent plugins are RETIRED as of 1.7.0. This workflow checks out
+# NO plugin repo, installs NO plugin, and starts NO MCP server -- it proves the
+# plugin-free host-resident observer path only. Per-repo plugin test_e2e.yml
+# workflows are retired stubs; this workflow is the sole AGENT_PLUGIN_E2E gate.
 #
 # On each of macOS / Windows / Linux it:
 #   1. installs/drives the real agent products headlessly with real provider keys
