@@ -84,6 +84,8 @@ Unlike the per-repo `test_e2e.yml` (which validates one plugin at a time), the
 fleet driver answers the operator question *"on this OS, does EDAMAME see
 every agent we ship, raise an `unsecured_<agent>` threat when an observer is
 paused, catch a divergence, and report the blast radius?"* in a single job.
+Per-repo `test_e2e.yml` healthcheck steps (`healthcheck_cli.mjs`) are hard
+gates -- do not soft-pass them with `|| true`.
 
 | Leg | Scope | Severity | What it asserts |
 |-----|-------|----------|-----------------|
