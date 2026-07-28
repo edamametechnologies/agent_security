@@ -61,10 +61,10 @@ name: Agent fleet monitoring E2E
 # This workflow gates the EDAMAME release: edamame_app/release_all.sh lists it in
 # AGENT_PLUGIN_E2E_WORKFLOWS, so a red run blocks the release. Hard failures:
 # attempted-HARD-agent real drive + observer detection, the real-coverage floor,
-# the fleet-wide blast-radius leg (all platforms), and the divergence leg on
-# Linux/macOS. Soft (warn only): the unsecured_<agent> toggle, and a divergence
-# miss on Windows. All cross-agent orchestration lives in
-# tests/e2e/run_fleet_monitoring.py.
+# the fleet-wide blast-radius leg (all platforms), the divergence leg on
+# Linux/macOS, and the trailing attack pattern detector gate. Soft (warn only):
+# the unsecured_<agent> toggle, and a divergence miss on Windows. All
+# cross-agent orchestration lives in tests/e2e/run_fleet_monitoring.py.
 
 on:
   push:
@@ -135,6 +135,8 @@ jobs:
           edamame_pin: ${{ secrets.EDAMAME_POSTURE_PIN }}
           edamame_id: ${{ github.run_id }}
           packet_capture: true
+          vulnerability_detection: true
+          vulnerability_detection_interval: "60"
           wait_for_api: true
           checkout: false
           agentic_mode: analyze
@@ -252,6 +254,33 @@ jobs:
           else
             "$PY" tests/e2e/run_fleet_monitoring.py
           fi
+
+      # ── Attack pattern detector evidence, then gate ────────────────────
+      # The driver deliberately produces adversarial-shaped telemetry: it
+      # installs agent CLIs (hermes unpacks and runs from a temp dir) and
+      # drives 12 unexplained UDP destinations through a driven agent. Those
+      # are dumped here for evidence and then cleared, so the gate below
+      # reports on what the run left behind rather than on the scenarios the
+      # driver was asked to fire.
+      - name: Dump and clear driver-induced vulnerability findings
+        if: always()
+        shell: bash
+        run: |
+          EC="${EDAMAME_CLI:-edamame_cli}"
+          command -v "$EC" >/dev/null 2>&1 || EC=edamame_cli
+          echo "--- findings produced during the fleet run ---"
+          "$EC" rpc get_vulnerability_findings --pretty || true
+          "$EC" rpc clear_vulnerability_history || true
+          "$EC" rpc reset_vulnerability_suppressions || true
+          echo "--- detector state after clear ---"
+          "$EC" rpc get_vulnerability_detector_status --pretty || true
+
+      - name: EDAMAME Posture vulnerability gate
+        if: always()
+        uses: edamametechnologies/edamame_posture_action@v1
+        with:
+          dump_vulnerability_findings: true
+          exit_on_vulnerability_findings: true
 
       # ── Teardown ───────────────────────────────────────────────────────
       - name: Stop daemon
