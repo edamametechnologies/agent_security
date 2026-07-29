@@ -61,10 +61,11 @@ name: Agent fleet monitoring E2E
 # This workflow gates the EDAMAME release: edamame_app/release_all.sh lists it in
 # AGENT_PLUGIN_E2E_WORKFLOWS, so a red run blocks the release. Hard failures:
 # attempted-HARD-agent real drive + observer detection, the real-coverage floor,
-# the fleet-wide blast-radius leg (all platforms), the divergence leg on
-# Linux/macOS, and the trailing attack pattern detector gate. Soft (warn only):
-# the unsecured_<agent> toggle, and a divergence miss on Windows. All
-# cross-agent orchestration lives in tests/e2e/run_fleet_monitoring.py.
+# the fleet-wide blast-radius leg (all platforms), and the divergence leg on
+# Linux/macOS. Soft (warn only): the unsecured_<agent> toggle, and a divergence
+# miss on Windows. The trailing attack pattern detector steps publish evidence
+# and never gate -- see the comment at that step for why. All cross-agent
+# orchestration lives in tests/e2e/run_fleet_monitoring.py.
 
 on:
   push:
@@ -255,13 +256,19 @@ jobs:
             "$PY" tests/e2e/run_fleet_monitoring.py
           fi
 
-      # ── Attack pattern detector evidence, then gate ────────────────────
+      # ── Attack pattern detector evidence (dump only, never gates) ──────
       # The driver deliberately produces adversarial-shaped telemetry: it
       # installs agent CLIs (hermes unpacks and runs from a temp dir) and
       # drives 12 unexplained UDP destinations through a driven agent. Those
-      # are dumped here for evidence and then cleared, so the gate below
-      # reports on what the run left behind rather than on the scenarios the
-      # driver was asked to fire.
+      # findings ARE the expected result here, so this run cannot be gated on
+      # their absence, and clearing history first does not make it gateable:
+      # the clear invalidates the detector's input-hash cache, so the next
+      # 60s tick re-derives sandbox_exploitation from the probe session, which
+      # stays in the capture pipeline after the process exits. Whether the
+      # gate saw 0 or 1 came down to which side of a tick it landed on --
+      # Windows tripped while Linux/macOS passed on the same commit. The real
+      # assertion is run_fleet_monitoring.py's own PASS/FAIL above; these
+      # steps only publish the detector evidence for the run.
       - name: Dump and clear driver-induced vulnerability findings
         if: always()
         shell: bash
@@ -275,12 +282,11 @@ jobs:
           echo "--- detector state after clear ---"
           "$EC" rpc get_vulnerability_detector_status --pretty || true
 
-      - name: EDAMAME Posture vulnerability gate
+      - name: Dump EDAMAME Posture vulnerability findings
         if: always()
         uses: edamametechnologies/edamame_posture_action@v1
         with:
           dump_vulnerability_findings: true
-          exit_on_vulnerability_findings: true
 
       # ── Teardown ───────────────────────────────────────────────────────
       - name: Stop daemon
