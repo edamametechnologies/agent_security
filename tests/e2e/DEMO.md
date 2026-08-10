@@ -83,8 +83,8 @@ PowerShell port is required.
   Npcap and an elevated session -- start Git Bash / WSL as Administrator
   if the capture RPCs fail.
 
-Plugin install paths are resolved by `tests/e2e/supported_agents.py
-resolve-paths`, which mirrors each plugin's `setup/install.sh` logic:
+Plugin install paths are resolved by
+`edamame_posture/tests/e2e/supported_agents.py resolve-paths`, which mirrors each plugin's `setup/install.sh` logic:
 
 | Kernel | Config home (example: cursor) | State home (PSK) |
 |--------|-------------------------------|------------------|
@@ -362,7 +362,7 @@ To clean up manually (use `--agent-type <name>` only if you drove a
 non-default agent identity; otherwise the defaults apply):
 
 ```bash
-python3 triggers/cleanup.py
+python3 ../edamame_posture/tests/security/triggers/cleanup.py
 ```
 
 Existing configs are backed up under `~/.edamame_demo_backups/<timestamp>/`
@@ -387,6 +387,7 @@ available RPC methods. Method names may change between core versions.
 
 ## See Also
 
-- [E2E_TESTS.md](E2E_TESTS.md) -- Full E2E architecture, trigger internals, and adding new scenarios
+- [MOVED.md](MOVED.md) -- Where the CI gates, the trigger corpus, and the registry went
+- [edamame_posture tests/e2e/E2E_TESTS.md](https://github.com/edamametechnologies/edamame_posture/blob/main/tests/e2e/E2E_TESTS.md) -- Fleet-monitoring E2E architecture and trigger internals
 - [run_demo.sh](run_demo.sh) -- Demo orchestrator source
-- [run_e2e_harness.sh](run_e2e_harness.sh) -- Automated CI harness
+- [run_e2e_harness.sh](run_e2e_harness.sh) -- Long-running operator harness

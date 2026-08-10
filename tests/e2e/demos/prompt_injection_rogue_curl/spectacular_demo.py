@@ -28,7 +28,13 @@ from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
+# The trigger corpus moved to edamame_posture/tests/security/triggers. Accept a
+# local copy staged under tests/e2e/triggers first, then the sibling clone.
 TRIGGERS_DIR = ROOT / "triggers"
+if not TRIGGERS_DIR.is_dir():
+    TRIGGERS_DIR = (
+        ROOT.parents[2] / "edamame_posture" / "tests" / "security" / "triggers"
+    )
 sys.path.insert(0, str(TRIGGERS_DIR))
 
 from run_demo import DEFAULT_RUNTIME_ROOT, summarize_demo_findings
@@ -451,9 +457,9 @@ def write_incident_report(
     <h2>Part 2: Front-Line Coverage Replay</h2>
     <div class="card">
       <p>The video should keep EDAMAME on screen and use one short replay to prove breadth. Recommended live replay: litellm-style PyPI credential harvesting. Optional extra proof: axios-style npm RAT beaconing, then mention the full replay suite.</p>
-      <pre>python3 tests/e2e/triggers/trigger_supply_chain_exfil.py --agent-type cursor --duration 45
-python3 tests/e2e/triggers/cleanup.py --agent-type cursor
-python3 tests/e2e/triggers/trigger_npm_rat_beacon.py --agent-type cursor --duration 45 --interval 5</pre>
+      <pre>python3 ../edamame_posture/tests/security/triggers/trigger_supply_chain_exfil.py --agent-type cursor --duration 45
+python3 ../edamame_posture/tests/security/triggers/cleanup.py --agent-type cursor
+python3 ../edamame_posture/tests/security/triggers/trigger_npm_rat_beacon.py --agent-type cursor --duration 45 --interval 5</pre>
       <p>Show EDAMAME under AI Assistant &gt; Security, AI Assistant &gt; History, optional notification channels, and CLI proof snapshots. Keep the story simple: provider blocks text; EDAMAME secures the endpoint.</p>
     </div>
   </main>
@@ -522,10 +528,10 @@ def main() -> int:
     print("\n== Part 2 Handoff: Front-Line Coverage Replay ==")
     print("Show EDAMAME AI Assistant > Security, then AI Assistant > History.")
     print("Recommended live replay:")
-    print("  python3 tests/e2e/triggers/trigger_supply_chain_exfil.py --agent-type cursor --duration 45")
+    print("  python3 ../edamame_posture/tests/security/triggers/trigger_supply_chain_exfil.py --agent-type cursor --duration 45")
     print("Optional axios-style proof:")
-    print("  python3 tests/e2e/triggers/cleanup.py --agent-type cursor")
-    print("  python3 tests/e2e/triggers/trigger_npm_rat_beacon.py --agent-type cursor --duration 45 --interval 5")
+    print("  python3 ../edamame_posture/tests/security/triggers/cleanup.py --agent-type cursor")
+    print("  python3 ../edamame_posture/tests/security/triggers/trigger_npm_rat_beacon.py --agent-type cursor --duration 45 --interval 5")
     print("After each trigger:")
     print("  ../edamame_cli/target/release/edamame_cli rpc run_vulnerability_detector_tick")
     print("  ../edamame_cli/target/release/edamame_cli rpc get_vulnerability_findings --pretty")

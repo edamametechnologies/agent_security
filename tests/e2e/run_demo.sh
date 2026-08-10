@@ -110,8 +110,14 @@ EOF
 }
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The trigger corpus and the supported-agent helper now live in edamame_posture
+# (tests/security/triggers, tests/e2e/supported_agents.py). Accept a local copy
+# staged next to this script first, then the sibling posture clone.
+POSTURE_ROOT="${EDAMAME_POSTURE_REPO:-$ROOT_DIR/../../../edamame_posture}"
 TRIGGERS_DIR="$ROOT_DIR/triggers"
+[[ -d "$TRIGGERS_DIR" ]] || TRIGGERS_DIR="$POSTURE_ROOT/tests/security/triggers"
 SUPPORTED_AGENT_HELPER="$ROOT_DIR/supported_agents.py"
+[[ -f "$SUPPORTED_AGENT_HELPER" ]] || SUPPORTED_AGENT_HELPER="$POSTURE_ROOT/tests/e2e/supported_agents.py"
 
 WORKSPACE_ROOT="${WORKSPACE_ROOT:-$ROOT_DIR/../../..}"
 FOCUS="all"

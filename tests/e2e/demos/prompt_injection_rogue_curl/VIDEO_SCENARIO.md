@@ -72,7 +72,7 @@ python3 tests/e2e/demos/prompt_injection_rogue_curl/spectacular_demo.py \
 Recommended second proof command, litellm-style supply-chain exfiltration:
 
 ```bash
-python3 tests/e2e/triggers/trigger_supply_chain_exfil.py \
+python3 ../edamame_posture/tests/security/triggers/trigger_supply_chain_exfil.py \
   --agent-type cursor \
   --duration 45
 ```
@@ -80,8 +80,8 @@ python3 tests/e2e/triggers/trigger_supply_chain_exfil.py \
 Optional third proof command, axios-style npm RAT beacon:
 
 ```bash
-python3 tests/e2e/triggers/cleanup.py --agent-type cursor
-python3 tests/e2e/triggers/trigger_npm_rat_beacon.py \
+python3 ../edamame_posture/tests/security/triggers/cleanup.py --agent-type cursor
+python3 ../edamame_posture/tests/security/triggers/trigger_npm_rat_beacon.py \
   --agent-type cursor \
   --duration 45 \
   --interval 5
@@ -316,7 +316,7 @@ Narration:
 Run:
 
 ```bash
-python3 tests/e2e/triggers/trigger_supply_chain_exfil.py \
+python3 ../edamame_posture/tests/security/triggers/trigger_supply_chain_exfil.py \
   --agent-type cursor \
   --duration 45
 ```
@@ -359,8 +359,8 @@ Narration:
 Optional axios command:
 
 ```bash
-python3 tests/e2e/triggers/cleanup.py --agent-type cursor
-python3 tests/e2e/triggers/trigger_npm_rat_beacon.py \
+python3 ../edamame_posture/tests/security/triggers/cleanup.py --agent-type cursor
+python3 ../edamame_posture/tests/security/triggers/trigger_npm_rat_beacon.py \
   --agent-type cursor \
   --duration 45 \
   --interval 5

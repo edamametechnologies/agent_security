@@ -22,7 +22,13 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+# The trigger corpus moved to edamame_posture/tests/security/triggers. Accept a
+# local copy staged under tests/e2e/triggers first, then the sibling clone.
 TRIGGERS_DIR = ROOT / "triggers"
+if not TRIGGERS_DIR.is_dir():
+    TRIGGERS_DIR = (
+        ROOT.parents[2] / "edamame_posture" / "tests" / "security" / "triggers"
+    )
 sys.path.insert(0, str(TRIGGERS_DIR))
 
 from _edamame_cli import cli_rpc, find_cli_binary  # noqa: E402

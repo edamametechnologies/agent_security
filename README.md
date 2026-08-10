@@ -7,6 +7,18 @@ Authors: Frank Lyonnet, Antoine Clerget, Kave Salamatian
 This repository contains the whitepaper draft, figure generation pipeline, and
 publication artifacts for the two-plane runtime security paper.
 
+> **FROZEN -- paper support only.** The CI gates and the agent registry that used
+> to live here have moved. Attack-pattern detection and agent fleet monitoring are
+> now gated entirely from
+> [edamame_posture](https://github.com/edamametechnologies/edamame_posture)
+> (`tests/security/` and `tests/e2e/`, workflows `tests.yml` and
+> `agent_monitoring_e2e.yml`), and the supported-agent registry is canonical in
+> `edamame_foundation/supported_agents/`. See [tests/e2e/MOVED.md](tests/e2e/MOVED.md).
+> The `supported_agents/` directory here is a mirror kept for one release cycle so
+> already-released daemons keep resolving the registry; do not edit it in place.
+> The paper pipeline (`paper/`, `scripts/`, `tests/benchmark/`, `docs/`) stays
+> live and is still maintained.
+
 ## Repository Structure
 
 ```
@@ -25,11 +37,11 @@ scripts/
   readiness_gate.sh       # Publication readiness gate
 tests/
   e2e/
-    triggers/             # 13 CVE/divergence trigger scripts + cleanup
+    MOVED.md              # Where the CI gates, triggers, and registry went
     run_demo.sh           # Demo orchestrator (--focus vuln|divergence|all)
-    run_e2e_harness.sh    # Automated E2E harness for CI
+    run_e2e_harness.sh    # Long-running operator harness
     DEMO.md               # Step-by-step demo reproduction guide
-    E2E_TESTS.md          # E2E test architecture reference
+    demos/                # Video-capture scenarios
   benchmark/
     live-scenarios/       # 50 versioned JSON scenario contracts
     run_live_suite.py     # Live benchmark harness (Lima VM orchestrator)
@@ -146,7 +158,8 @@ After regeneration, `artifacts/paper-bundle/` contains:
 - [Canonical claim index](docs/CLAIM_ARTIFACT_INDEX.md)
 - [Canonical benchmark summary](artifacts/live-paper-summary.json)
 - [Demo guide -- vulnerability and divergence detection](tests/e2e/DEMO.md)
-- [E2E test architecture](tests/e2e/E2E_TESTS.md)
+- [Where the CI gates moved](tests/e2e/MOVED.md)
+- [E2E test architecture (edamame_posture)](https://github.com/edamametechnologies/edamame_posture/blob/main/tests/e2e/E2E_TESTS.md)
 
 ## Related Repositories
 
