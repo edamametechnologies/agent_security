@@ -303,6 +303,10 @@ VULN_SCENARIOS=(
   "file_events"
   "temp_modify"
   "nonsensitive_path"
+  "pgserve_postinstall"
+  "agent_config_tamper"
+  "agent_cred_harvest"
+  "agent_denylist_bypass"
 )
 
 DIVERGENCE_SCENARIOS=(
@@ -1248,7 +1252,7 @@ run_demo_loop() {
 
       capture_edamame_baseline "before_${scenario}"
 
-      if [[ "$scenario" == "file_events" || "$scenario" == "temp_modify" ]]; then
+      if [[ "$scenario" == "file_events" || "$scenario" == "temp_modify" || "$scenario" == "agent_config_tamper" ]]; then
         python3 "$TRIGGERS_DIR/_edamame_cli.py" clear_file_events >/dev/null 2>&1 || true
         python3 "$TRIGGERS_DIR/_edamame_cli.py" start_file_monitor '[[]]' >/dev/null 2>&1 || true
         log "Started FIM for $scenario scenario"
@@ -1265,7 +1269,7 @@ run_demo_loop() {
       post_scenario_readout "$scenario"
       run_injector_cleanup
 
-      if [[ "$scenario" == "file_events" || "$scenario" == "temp_modify" ]]; then
+      if [[ "$scenario" == "file_events" || "$scenario" == "temp_modify" || "$scenario" == "agent_config_tamper" ]]; then
         python3 "$TRIGGERS_DIR/_edamame_cli.py" stop_file_monitor >/dev/null 2>&1 || true
         log "Stopped FIM after $scenario scenario"
       fi
