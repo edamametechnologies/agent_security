@@ -931,7 +931,18 @@ undismiss_ok = False
 history_ok = False
 
 if verdict == "DIVERGENCE" and entry_id and finding_key:
-    dismiss = cli_rpc("dismiss_divergence_evidence", json.dumps([finding_key]))
+    # Core 1.9.1 retired the per-key dismiss / undismiss RPCs: a dismissal is a
+    # Finding-scope rule, and restore is removing that rule.
+    dismiss = cli_rpc(
+        "agentic_dismiss_with_scope",
+        json.dumps([json.dumps({
+            "domain": "divergence",
+            "scope": "finding",
+            "finding_key": finding_key,
+            "reason": "e2e harness roundtrip",
+        })]),
+    )
+    dismiss_rule_id = str((dismiss or {}).get("rule_id") or "").strip() if isinstance(dismiss, dict) else ""
     after_dismiss = cli_rpc("get_divergence_verdict")
     after_dismiss_evidence = after_dismiss.get("evidence") or []
     dismiss_ok = bool(dismiss.get("success")) and any(
@@ -941,7 +952,11 @@ if verdict == "DIVERGENCE" and entry_id and finding_key:
         for item in after_dismiss_evidence
     )
 
-    undismiss = cli_rpc("undismiss_divergence_evidence", json.dumps([finding_key]))
+    undismiss = (
+        cli_rpc("agentic_remove_dismissal_rule", json.dumps([dismiss_rule_id]))
+        if dismiss_rule_id
+        else {}
+    )
     after_undismiss = cli_rpc("get_divergence_verdict")
     after_undismiss_evidence = after_undismiss.get("evidence") or []
     undismiss_ok = bool(undismiss.get("success")) and any(
