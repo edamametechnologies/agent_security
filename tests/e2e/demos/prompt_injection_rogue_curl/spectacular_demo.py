@@ -301,7 +301,7 @@ def collect_edamame_evidence(
     force_ticks()
     time.sleep(5)
 
-    findings = cli_rpc("get_vulnerability_findings", timeout=60)
+    findings = cli_rpc("get_attack_pattern_findings", timeout=60)
     divergence = cli_rpc("get_divergence_verdict", timeout=60)
     sessions = cli_rpc("get_current_sessions", timeout=60)
     session_blob = json.dumps(sessions, ensure_ascii=False)
@@ -496,7 +496,7 @@ def main() -> int:
         reset_state()
 
     print("\n== Baseline ==")
-    print("demo findings:", compact(summarize_demo_findings(cli_rpc("get_vulnerability_findings", timeout=60)), 2500))
+    print("demo findings:", compact(summarize_demo_findings(cli_rpc("get_attack_pattern_findings", timeout=60)), 2500))
     print("divergence:", compact(cli_rpc("get_divergence_verdict", timeout=60), 2500))
 
     provider = run_provider_capture(args.provider_runner, workspace, demo_bin, demo_home, env, args)
@@ -534,7 +534,7 @@ def main() -> int:
     print("  python3 ../edamame_posture/tests/security/triggers/trigger_npm_rat_beacon.py --agent-type cursor --duration 45 --interval 5")
     print("After each trigger:")
     print("  ../edamame_cli/target/release/edamame_cli rpc run_vulnerability_detector_tick")
-    print("  ../edamame_cli/target/release/edamame_cli rpc get_vulnerability_findings --pretty")
+    print("  ../edamame_cli/target/release/edamame_cli rpc get_attack_pattern_findings --pretty")
     if args.open_report:
         webbrowser.open(report_path.as_uri())
 

@@ -606,7 +606,7 @@ cleanup_demo_state() {
 
   local cli_bin
   if cli_bin="$(find_edamame_cli_bin 2>/dev/null)"; then
-    "$cli_bin" rpc clear_vulnerability_history >/dev/null 2>&1 || true
+    "$cli_bin" rpc clear_attack_pattern_history >/dev/null 2>&1 || true
   fi
 }
 

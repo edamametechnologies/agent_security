@@ -410,7 +410,7 @@ def print_edamame_evidence(curl_binary: Path, demo_home: Path, args: argparse.Na
     force_ticks()
     time.sleep(5)
 
-    final_vuln = cli_rpc("get_vulnerability_findings", timeout=60)
+    final_vuln = cli_rpc("get_attack_pattern_findings", timeout=60)
     final_div = cli_rpc("get_divergence_verdict", timeout=60)
     sessions = cli_rpc("get_current_sessions", timeout=60)
     session_blob = json.dumps(sessions, ensure_ascii=False)
@@ -468,7 +468,7 @@ def main() -> int:
         reset_state()
 
     print("\n== Baseline ==")
-    print("demo findings:", compact(summarize_demo_findings(cli_rpc("get_vulnerability_findings", timeout=60)), 2500))
+    print("demo findings:", compact(summarize_demo_findings(cli_rpc("get_attack_pattern_findings", timeout=60)), 2500))
     print("divergence:", compact(cli_rpc("get_divergence_verdict", timeout=60), 2500))
 
     rc = run_provider_phase(args.provider_runner, workspace, env)

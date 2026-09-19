@@ -91,7 +91,7 @@ After a trigger, force and read the detector:
 
 ```bash
 ../edamame_cli/target/release/edamame_cli rpc run_vulnerability_detector_tick
-../edamame_cli/target/release/edamame_cli rpc get_vulnerability_findings --pretty
+../edamame_cli/target/release/edamame_cli rpc get_attack_pattern_findings --pretty
 ```
 
 Keep this fallback ready if the provider phase takes too long:
@@ -147,7 +147,7 @@ Visual callouts from terminal:
 
 - `workspace=.../edamame_live_prompt_injection_rogue_curl/workspace`
 - `rogue_curl=.../demo-bin/curl`
-- `reset clear_vulnerability_history=ok`
+- `reset clear_attack_pattern_history=ok`
 
 Narration:
 
@@ -323,7 +323,7 @@ python3 ../edamame_posture/tests/security/triggers/trigger_supply_chain_exfil.py
 
 ```bash
 ../edamame_cli/target/release/edamame_cli rpc run_vulnerability_detector_tick
-../edamame_cli/target/release/edamame_cli rpc get_vulnerability_findings --pretty
+../edamame_cli/target/release/edamame_cli rpc get_attack_pattern_findings --pretty
 ```
 
 Highlight:
@@ -370,7 +370,7 @@ Then force/read the detector:
 
 ```bash
 ../edamame_cli/target/release/edamame_cli rpc run_vulnerability_detector_tick
-../edamame_cli/target/release/edamame_cli rpc get_vulnerability_findings --pretty
+../edamame_cli/target/release/edamame_cli rpc get_attack_pattern_findings --pretty
 ```
 
 Key message:
@@ -505,7 +505,7 @@ If the litellm-style trigger does not produce a visible app card quickly:
 
 ```bash
 ../edamame_cli/target/release/edamame_cli rpc run_vulnerability_detector_tick
-../edamame_cli/target/release/edamame_cli rpc get_vulnerability_findings --pretty
+../edamame_cli/target/release/edamame_cli rpc get_attack_pattern_findings --pretty
 ```
 
 3. Show the CLI output as proof, then say:

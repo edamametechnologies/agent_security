@@ -278,7 +278,7 @@ def summarize_demo_findings(report: object) -> list[dict[str, object]]:
 
 def reset_state() -> None:
     for method in (
-        "clear_vulnerability_history",
+        "clear_attack_pattern_history",
         "reset_vulnerability_suppressions",
         "clear_divergence_state",
         "clear_divergence_history",
@@ -291,7 +291,7 @@ def reset_state() -> None:
 
 
 def force_ticks() -> None:
-    for method in ("debug_run_vulnerability_detector_tick", "debug_run_divergence_tick"):
+    for method in ("debug_run_attack_pattern_detector_tick", "debug_run_divergence_tick"):
         try:
             print(f"{method}: {compact(cli_rpc(method, timeout=180), 1200)}")
         except Exception as exc:
@@ -483,7 +483,7 @@ def main() -> int:
         reset_state()
 
     print("\n== Baseline ==")
-    print("demo findings:", compact(summarize_demo_findings(cli_rpc("get_vulnerability_findings", timeout=60)), 2500))
+    print("demo findings:", compact(summarize_demo_findings(cli_rpc("get_attack_pattern_findings", timeout=60)), 2500))
     print("divergence:", compact(cli_rpc("get_divergence_verdict", timeout=60), 2500))
 
     rc = 0
@@ -506,7 +506,7 @@ def main() -> int:
     force_ticks()
     time.sleep(5)
 
-    final_vuln = cli_rpc("get_vulnerability_findings", timeout=60)
+    final_vuln = cli_rpc("get_attack_pattern_findings", timeout=60)
     final_div = cli_rpc("get_divergence_verdict", timeout=60)
     sessions = cli_rpc("get_current_sessions", timeout=60)
     session_blob = json.dumps(sessions, ensure_ascii=False)

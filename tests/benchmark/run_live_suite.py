@@ -2810,7 +2810,7 @@ def main(argv: list[str]) -> int:
                 )
                 _capture_openclaw_tool_invoke(
                     args.vm_name, baseline_vulnerability_findings_path,
-                    tool_name="get_vulnerability_findings", tool_args={}, timeout_seconds=60,
+                    tool_name="get_attack_pattern_findings", tool_args={}, timeout_seconds=60,
                 )
                 _capture_openclaw_tool_invoke(
                     args.vm_name, baseline_todos_path,
@@ -3075,7 +3075,7 @@ def main(argv: list[str]) -> int:
                 )
                 _capture_openclaw_tool_invoke(
                     args.vm_name, post_vulnerability_findings_path,
-                    tool_name="get_vulnerability_findings", tool_args={}, timeout_seconds=60,
+                    tool_name="get_attack_pattern_findings", tool_args={}, timeout_seconds=60,
                 )
                 _capture_openclaw_tool_invoke(
                     args.vm_name, post_todos_path,

@@ -236,7 +236,7 @@ edamame_cli rpc get_anomalous_sessions --pretty
 edamame_cli rpc get_blacklisted_sessions --pretty
 
 # Vulnerability findings
-edamame_cli rpc get_vulnerability_findings --pretty
+edamame_cli rpc get_attack_pattern_findings --pretty
 
 # Security score with active threats
 edamame_cli rpc get_score '[false]' --pretty

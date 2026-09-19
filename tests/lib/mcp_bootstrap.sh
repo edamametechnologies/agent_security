@@ -457,7 +457,7 @@ start_vulnerability_detector_loop() {
 # Force a single vulnerability detector cycle immediately.
 # Usage: run_vulnerability_detector_tick_direct
 run_vulnerability_detector_tick_direct() {
-    mcp_vm_exec_checked 'python3 /tmp/mcp_direct.py debug_run_vulnerability_detector_tick "{}" 2>&1' 4
+    mcp_vm_exec_checked 'python3 /tmp/mcp_direct.py debug_run_attack_pattern_detector_tick "{}" 2>&1' 4
 }
 
 # Read current vulnerability detector status.
@@ -469,7 +469,7 @@ fetch_vulnerability_detector_status() {
 # Read latest vulnerability findings summary.
 # Usage: result=$(fetch_vulnerability_findings)
 fetch_vulnerability_findings() {
-    mcp_vm_exec_checked 'python3 /tmp/mcp_direct.py get_vulnerability_findings 2>&1' 4
+    mcp_vm_exec_checked 'python3 /tmp/mcp_direct.py get_attack_pattern_findings 2>&1' 4
 }
 
 # Read recent vulnerability history summaries.
@@ -477,7 +477,7 @@ fetch_vulnerability_findings() {
 fetch_vulnerability_history() {
     local limit="${1:-5}"
     mcp_vm_exec_checked \
-        "python3 /tmp/mcp_direct.py get_vulnerability_history '{\"limit\": $limit}' 2>&1" \
+        "python3 /tmp/mcp_direct.py get_attack_pattern_history '{\"limit\": $limit}' 2>&1" \
         4
 }
 
@@ -495,7 +495,7 @@ fetch_vulnerability_debug_trace() {
 # Clear persisted vulnerability history.
 # Usage: clear_vulnerability_history_direct
 clear_vulnerability_history_direct() {
-    mcp_vm_exec_checked 'python3 /tmp/mcp_direct.py clear_vulnerability_history "{}" 2>&1' 4
+    mcp_vm_exec_checked 'python3 /tmp/mcp_direct.py clear_attack_pattern_history "{}" 2>&1' 4
 }
 
 # Reset dismissed/suppressed vulnerability findings.

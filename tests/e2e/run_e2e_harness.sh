@@ -336,7 +336,7 @@ restore_capture_state() {
   log "Harness teardown: clearing vulnerability history"
   local cli_bin
   if cli_bin="$(find_edamame_cli_bin 2>/dev/null)"; then
-    "$cli_bin" rpc clear_vulnerability_history >/dev/null 2>&1 || true
+    "$cli_bin" rpc clear_attack_pattern_history >/dev/null 2>&1 || true
   fi
 
   if [[ "$CAPTURE_STARTED_BY_HARNESS" -ne 1 ]]; then
@@ -1273,13 +1273,13 @@ check = '$check'
 current = 0
 history_count = 0
 try:
-    report = cli_rpc('get_vulnerability_findings')
+    report = cli_rpc('get_attack_pattern_findings')
     findings = report.get('findings', []) if isinstance(report, dict) else []
     current = len([f for f in findings if f.get('check') == check])
 except Exception:
     pass
 try:
-    history = cli_rpc('get_vulnerability_history', '{\"limit\": 20}')
+    history = cli_rpc('get_attack_pattern_history', '{\"limit\": 20}')
     if isinstance(history, list):
         for entry in history:
             for f in (entry.get('findings') or []):
@@ -1345,13 +1345,13 @@ def matches(finding):
 current = 0
 history_count = 0
 try:
-    report = cli_rpc('get_vulnerability_findings')
+    report = cli_rpc('get_attack_pattern_findings')
     findings = report.get('findings', []) if isinstance(report, dict) else []
     current = sum(1 for finding in findings if matches(finding))
 except Exception:
     pass
 try:
-    history = cli_rpc('get_vulnerability_history', '{\"limit\": 20}')
+    history = cli_rpc('get_attack_pattern_history', '{\"limit\": 20}')
     if isinstance(history, list):
         for entry in history:
             for finding in (entry.get('findings') or []):
@@ -1494,12 +1494,12 @@ prepare_scenario_baseline() {
         python3 "$TRIGGERS_DIR/_edamame_cli.py" start_file_monitor '[[]]' >/dev/null 2>&1 || true
         log "  Started FIM for file_system_tampering scenario"
       fi
-      python3 "$TRIGGERS_DIR/_edamame_cli.py" clear_vulnerability_history >/dev/null 2>&1 || true
+      python3 "$TRIGGERS_DIR/_edamame_cli.py" clear_attack_pattern_history >/dev/null 2>&1 || true
 
       local waited=0
       local max_wait=45
       while ((waited <= max_wait)); do
-        python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_vulnerability_detector_tick >/dev/null 2>&1 || true
+        python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_attack_pattern_detector_tick >/dev/null 2>&1 || true
         sleep 2
 
         local status total current history
@@ -1789,7 +1789,7 @@ verify_detection() {
     python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_divergence_tick >/dev/null 2>&1 || true
   else
     log "  Forcing vulnerability detector tick..."
-    python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_vulnerability_detector_tick >/dev/null 2>&1 || true
+    python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_attack_pattern_detector_tick >/dev/null 2>&1 || true
   fi
   sleep 3
 
@@ -1824,7 +1824,7 @@ print(len(active))
         sc_count="$(python3 -c "
 import sys; sys.path.insert(0, '$TRIGGERS_DIR')
 from _edamame_cli import cli_rpc
-report = cli_rpc('get_vulnerability_findings')
+report = cli_rpc('get_attack_pattern_findings')
 findings = report.get('findings', []) if isinstance(report, dict) else []
 sc = [f for f in findings if f.get('check') == 'skill_supply_chain']
 print(len(sc))
@@ -1865,7 +1865,7 @@ print(len(sc))
           detected=1
         elif [[ "$expected" == "token_exfiltration" && "$anomalous_active" -gt 0 && "$anomalous_with_of" -gt 0 ]]; then
           log "  L7 overlap present; forcing immediate vulnerability detector tick..."
-          python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_vulnerability_detector_tick >/dev/null 2>&1 || true
+          python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_attack_pattern_detector_tick >/dev/null 2>&1 || true
           sleep 3
           found_status="$(vulnerability_finding_status_for_scenario "$scenario" "$expected")"
           found="${found_status%%|*}"
@@ -1899,7 +1899,7 @@ print(len(sc))
           detected=1
         elif [[ "$sandbox_candidates" -gt 0 ]]; then
           log "  Sandbox lineage present; forcing immediate vulnerability detector tick..."
-          python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_vulnerability_detector_tick >/dev/null 2>&1 || true
+          python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_attack_pattern_detector_tick >/dev/null 2>&1 || true
           sleep 3
           found_status="$(vulnerability_finding_status_for_scenario "$scenario" "$expected")"
           found="${found_status%%|*}"
@@ -1935,7 +1935,7 @@ print(len(sc))
           detected=1
         elif [[ "$harvest_candidates" -gt 0 ]]; then
           log "  Harvest candidates present; forcing immediate vulnerability detector tick..."
-          python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_vulnerability_detector_tick >/dev/null 2>&1 || true
+          python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_attack_pattern_detector_tick >/dev/null 2>&1 || true
           sleep 3
           found_status="$(vulnerability_finding_status_for_scenario "$scenario" "$expected")"
           found="${found_status%%|*}"
@@ -1969,7 +1969,7 @@ print(len(sc))
           detected=1
         elif [[ "$fim_sensitive" -gt 0 ]]; then
           log "  FIM sensitive events present; forcing immediate vulnerability detector tick..."
-          python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_vulnerability_detector_tick >/dev/null 2>&1 || true
+          python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_attack_pattern_detector_tick >/dev/null 2>&1 || true
           sleep 3
           found_status="$(vulnerability_finding_status_for_scenario "$scenario" "$expected")"
           found="${found_status%%|*}"
@@ -2003,7 +2003,7 @@ print(len(sc))
           detected=1
         elif [[ "$with_open_files" -gt 0 ]]; then
           log "  L7 overlap present; forcing immediate vulnerability detector tick..."
-          python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_vulnerability_detector_tick >/dev/null 2>&1 || true
+          python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_attack_pattern_detector_tick >/dev/null 2>&1 || true
           sleep 3
           found_status="$(vulnerability_finding_status_for_scenario "$scenario" "$expected")"
           found="${found_status%%|*}"
@@ -2031,7 +2031,7 @@ print(len(sc))
       if [[ "$expected" == "divergence_verdict" ]]; then
         python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_divergence_tick >/dev/null 2>&1 || true
       else
-        python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_vulnerability_detector_tick >/dev/null 2>&1 || true
+        python3 "$TRIGGERS_DIR/_edamame_cli.py" debug_run_attack_pattern_detector_tick >/dev/null 2>&1 || true
       fi
       sleep "$DETECTION_VERIFY_INTERVAL"
     fi
